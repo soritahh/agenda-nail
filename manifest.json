@@ -1,0 +1,17 @@
+{
+  "name": "Agenda Nail",
+  "short_name": "Agenda Nail",
+  "description": "Agenda de turnos para manicuras independientes.",
+  "lang": "es",
+  "start_url": "./index.html#/inicio",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f9b9bd",
+  "theme_color": "#f07a86",
+  "icons": [
+    { "src": "icons/icono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
