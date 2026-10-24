@@ -1,6 +1,6 @@
 // Service worker v2 (reservas online). Siempre primero la red: los turnos tienen que estar al día.
 // Al activarse borra los cachés viejos (incluida la versión local v1).
-const VERSION = 'agenda-nail-v2-online';
+const VERSION = 'agenda-nail-v3-kf';
 
 self.addEventListener('install', () => self.skipWaiting());
 

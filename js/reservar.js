@@ -1,8 +1,9 @@
 // Página pública: la clienta elige servicio, día y horario, y envía su pedido.
 import {
-  sb, $, $$, esc, pesos, hoyAR, sumarDias, diaSemana, DIAS_CORTOS, fechaLarga, capitalizar, fechaRelativa,
+  sb, $, $$, esc, precioTexto, icono, iconoServicio, hoyAR, sumarDias, diaSemana, DIAS_CORTOS, fechaLarga, capitalizar, fechaRelativa,
   duracionTexto, horariosLibres, aMin, normalizarTelefono, linkWhatsApp, toast, mensajeError, registrarSW, hora5,
 } from './comun.js';
+import { INSTAGRAM, INSTAGRAM_USUARIO } from './config.js';
 
 const S = { config: null, horarios: [], servicios: [], ocupados: [], listo: false, servicio: null, fecha: null, hora: null, enviando: false };
 const app = $('#app'), barra = $('#barra'), btn = $('#btn-reservar');
@@ -14,7 +15,7 @@ async function iniciar() {
     const [c, h, s] = await Promise.all([
       sb.from('config').select('nombre_salon, whatsapp, direccion, intervalo_min, dias_reserva').eq('id', 1).single(),
       sb.from('horarios').select('dia, trabaja, inicio, fin').order('dia'),
-      sb.from('servicios').select('id, nombre, precio, duracion_min').eq('activo', true).order('precio'),
+      sb.from('servicios').select('id, nombre, precio, duracion_min').eq('activo', true).order('created_at'),
     ]);
     if (c.error || h.error || s.error) throw c.error || h.error || s.error;
     S.config = c.data; S.horarios = h.data; S.servicios = s.data;
@@ -22,7 +23,7 @@ async function iniciar() {
     return fallo(mensajeError(e));
   }
   document.title = `Reserva tu turno · ${S.config.nombre_salon}`;
-  if (!S.servicios.length) return fallo('Por ahora no hay servicios para reservar online. Vuelve pronto.');
+  if (!S.servicios.length) return fallo('Por ahora no hay servicios para reservar online. Escríbeme por WhatsApp o vuelve pronto.');
   S.servicio = S.servicios[0].id;
   dibujarFormulario();
   await cargarDias();
@@ -31,19 +32,22 @@ async function iniciar() {
 function fallo(msg) {
   barra.hidden = true;
   app.innerHTML = cabecera() + `<div class="tarjeta centrado"><h2>Ups</h2><p class="texto-suave">${esc(msg)}</p></div>
-    <p class="pie-pro"><a href="panel.html">Acceso profesional</a></p>`;
+    <p class="pie-pro"><a href="panel.html">Ingresar al panel</a></p>`;
 }
 
-function cabecera() {
-  const c = S.config || { nombre_salon: 'Agenda Nail' };
-  const maps = c.direccion ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.direccion)}` : '';
-  return `<header class="salon-cabecera">
-    <img class="salon-logo" src="icons/icono.svg" alt="" width="64" height="64">
-    <div class="salon-info">
-      <p class="salon-pre">Reserva tu turno</p>
-      <h1>${esc(c.nombre_salon)}</h1>
-      ${c.direccion ? `<a class="salon-dir" href="${maps}" target="_blank" rel="noopener">${esc(c.direccion)}</a>` : ''}
+function cabecera(intro = true) {
+  const c = S.config || { nombre_salon: 'Katia Ferrero Nails' };
+  const wa = c.whatsapp ? linkWhatsApp(c.whatsapp, '¡Hola! Quería consultarte por un turno.') : '';
+  return `<header class="perfil">
+    <img class="logo" src="icons/logo-kf.svg" alt="Logo de ${esc(c.nombre_salon)}" width="104" height="104">
+    <h1>${esc(c.nombre_salon)}</h1>
+    ${c.direccion ? `<p class="perfil-zona">${icono('pin')}${esc(c.direccion)}</p>` : ''}
+    <div class="perfil-redes">
+      <a class="red" href="${INSTAGRAM}" target="_blank" rel="noopener" aria-label="Instagram ${INSTAGRAM_USUARIO}">${icono('instagram')}Instagram</a>
+      ${wa ? `<a class="red" href="${wa}" target="_blank" rel="noopener">${icono('whatsapp')}WhatsApp</a>` : ''}
     </div>
+    ${intro ? `<div class="adorno" aria-hidden="true">${icono('chispa')}</div>
+    <p class="perfil-intro">Reserva tu turno en cuatro pasos.</p>` : ''}
   </header>`;
 }
 
@@ -54,9 +58,12 @@ function dibujarFormulario() {
   <h2 class="paso"><span class="paso-n">1</span> Elige tu servicio</h2>
   <div class="lista-opciones" role="radiogroup" aria-label="Servicios">${S.servicios.map((v) => `
     <div class="opcion-servicio${v.id === S.servicio ? ' sel' : ''}" data-id="${esc(v.id)}" role="radio" tabindex="0" aria-checked="${v.id === S.servicio}">
-      <span class="radio-punto" aria-hidden="true"></span>
-      <div class="opcion-info"><strong>${esc(v.nombre)}</strong><small>${duracionTexto(v.duracion_min)}</small></div>
-      <span class="opcion-precio">${pesos(v.precio)}</span>
+      <span class="miniatura" aria-hidden="true">${iconoServicio(v.nombre)}</span>
+      <div class="opcion-info"><strong>${esc(v.nombre)}</strong><small>${icono('reloj')}${duracionTexto(v.duracion_min)}</small></div>
+      <div class="opcion-lado">
+        <span class="opcion-precio${v.precio == null ? ' consultar' : ''}">${precioTexto(v.precio)}</span>
+        <span class="radio-punto" aria-hidden="true"></span>
+      </div>
     </div>`).join('')}</div>
 
   <h2 class="paso"><span class="paso-n">2</span> Elige el día</h2>
@@ -70,13 +77,13 @@ function dibujarFormulario() {
     <div class="campo"><label for="nombre">Nombre y apellido</label>
       <input id="nombre" autocomplete="name" maxlength="80" placeholder="Ej.: Sofía Pérez"></div>
     <div class="campo"><label for="telefono">WhatsApp / teléfono</label>
-      <input id="telefono" type="tel" inputmode="tel" autocomplete="tel" maxlength="25" placeholder="Ej.: 11 2345 6789">
+      <input id="telefono" type="tel" inputmode="tel" autocomplete="tel" maxlength="25" placeholder="Ej.: 353 412 3456">
       <p class="ayuda" id="tel-ayuda">Con código de área, sin 0 ni 15.</p></div>
     <div class="campo"><label for="notas">Nota (opcional)</label>
-      <textarea id="notas" maxlength="300" rows="2" placeholder="Ej.: quiero diseño en dos uñas"></textarea></div>
+      <textarea id="notas" maxlength="300" rows="2" placeholder="Ej.: quiero francesita o diseño en dos uñas"></textarea></div>
   </div>
-  <p class="pie">Tu pedido queda pendiente hasta que el salón lo confirme.</p>
-  <p class="pie-pro"><a href="panel.html">Acceso profesional</a></p>`;
+  <p class="pie">Tu turno queda pendiente hasta que te lo confirme. ✦</p>
+  <p class="pie-pro"><a href="panel.html">Ingresar al panel</a></p>`;
 
   const guardado = JSON.parse(localStorage.getItem('agenda-nail-clienta') || '{}');
   if (guardado.nombre) $('#nombre').value = guardado.nombre;
@@ -145,22 +152,22 @@ function dibujarDias() {
     S.fecha = b.dataset.f; S.hora = null; dibujarDias(); dibujarHoras(); actualizarBarra();
   }));
   const sel = $('#dias .dia.sel');
-  if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'center' });
+  if (sel) { const tira = $('#dias'); tira.scrollLeft = sel.offsetLeft - (tira.clientWidth - sel.offsetWidth) / 2; }
 }
 
 function dibujarHoras() {
   if (!S.listo) return;
   const caja = $('#horas');
   if (!S.fecha) {
-    caja.className = 'tarjeta centrado texto-suave';
-    caja.textContent = 'No hay horarios libres en los próximos días. Escribe al salón para consultar.';
+    caja.className = 'sin-horas';
+    caja.textContent = 'No hay horarios libres en los próximos días. Escríbeme por WhatsApp para consultar.';
     return;
   }
   const libres = libresDe(S.fecha);
   const grupos = [['Mañana', libres.filter((t) => aMin(t) < 13 * 60)], ['Tarde', libres.filter((t) => aMin(t) >= 13 * 60)]].filter((g) => g[1].length);
-  caja.className = '';
+  caja.className = 'caja-horas';
   caja.innerHTML = `<p class="horas-fecha">${esc(capitalizar(fechaLarga(S.fecha)))}</p>` + grupos.map(([g, ts]) => `
-    <p class="grupo-titulo">${g}</p>
+    <p class="grupo-titulo">${icono(g === 'Mañana' ? 'sol' : 'luna')}${g}</p>
     <div class="grilla-horas">${ts.map((t) => `<button type="button" class="hora${t === S.hora ? ' sel' : ''}" data-h="${t}">${t}</button>`).join('')}</div>`).join('');
   $$('#horas .hora').forEach((b) => b.addEventListener('click', () => {
     S.hora = b.dataset.h; $$('#horas .hora').forEach((x) => x.classList.toggle('sel', x === b)); actualizarBarra();
@@ -170,7 +177,7 @@ function dibujarHoras() {
 function actualizarBarra() {
   const srv = servicioActual();
   const partes = [];
-  if (srv) partes.push(`<b>${esc(srv.nombre)}</b> ${pesos(srv.precio)}`);
+  if (srv) partes.push(`<b>${esc(srv.nombre)}</b> ${precioTexto(srv.precio)}`);
   if (S.fecha) partes.push(esc(capitalizar(fechaLarga(S.fecha))));
   if (S.hora) partes.push(`<b>${S.hora} h</b>`);
   $('#resumen').innerHTML = partes.join(' · ');
@@ -180,7 +187,7 @@ function actualizarBarra() {
   if (ayuda) {
     const mal = telTxt.replace(/\D/g, '').length >= 6 && !telOk;
     ayuda.classList.toggle('ayuda-error', mal);
-    ayuda.textContent = mal ? 'Revisa el número: código de área + número (ej.: 11 2345 6789).' : 'Con código de área, sin 0 ni 15.';
+    ayuda.textContent = mal ? 'Revisa el número: código de área + número (ej.: 353 412 3456).' : 'Con código de área, sin 0 ni 15.';
   }
   const datosOk = nombre.trim().length >= 2 && telOk;
   btn.disabled = !(srv && S.fecha && S.hora && datosOk) || S.enviando;
@@ -218,25 +225,25 @@ function confirmacion(r, nombre) {
   const c = S.config;
   const msg = `¡Hola! Soy ${nombre}. Acabo de pedir un turno online: ${r.servicio_nombre} ${fechaRelativa(r.fecha)} a las ${r.hora_inicio} h.`;
   const wa = c.whatsapp ? linkWhatsApp(c.whatsapp, msg) : '';
-  app.innerHTML = cabecera() + `
+  app.innerHTML = cabecera(false) + `
     <section class="confirmacion" aria-live="polite">
       <div class="ok-grande" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
-      <h2 class="confirmacion-titulo">Tu pedido fue enviado</h2>
-      <p class="confirmacion-sub">Te confirmamos pronto.</p>
+      <h2 class="confirmacion-titulo">¡Pedido enviado!</h2>
+      <p class="confirmacion-sub">Te confirmo el turno a la brevedad.</p>
       <div class="tarjeta">
         <dl class="detalle-datos">
           <div><dt>Servicio</dt><dd>${esc(r.servicio_nombre)}</dd></div>
           <div><dt>Día</dt><dd>${esc(capitalizar(fechaLarga(r.fecha)))}</dd></div>
           <div><dt>Hora</dt><dd>${esc(r.hora_inicio)} a ${esc(r.hora_fin)} h</dd></div>
-          <div><dt>Precio</dt><dd>${pesos(r.precio)}</dd></div>
+          <div><dt>Precio</dt><dd>${precioTexto(r.precio)}</dd></div>
           <div><dt>Estado</dt><dd><span class="chip chip-pendiente">Pendiente de confirmación</span></dd></div>
         </dl>
       </div>
       <div class="acciones-columna">
-        ${wa ? `<a class="btn btn-whatsapp btn-grande" href="${wa}" target="_blank" rel="noopener">Avisar al salón por WhatsApp</a>` : ''}
+        ${wa ? `<a class="btn btn-whatsapp btn-grande" href="${wa}" target="_blank" rel="noopener">${icono('whatsapp')}Escríbeme por WhatsApp</a>` : ''}
         <button class="btn btn-secundario btn-grande" id="otro">Pedir otro turno</button>
       </div>
-      <p class="pie">Si no puedes ir, avisa al salón con tiempo. ¡Gracias!</p>
+      <p class="pie">Si no puedes venir, avísame con tiempo. ¡Gracias! ✦</p>
     </section>`;
   $('#otro').onclick = () => { S.hora = null; dibujarFormulario(); cargarDias(); scrollTo(0, 0); };
   scrollTo(0, 0);

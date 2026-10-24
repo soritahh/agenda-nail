@@ -1,6 +1,6 @@
 // Panel privado de la profesional: pedidos, agenda, servicios y horarios.
 import {
-  sb, $, $$, esc, pesos, parsePesos, pesosInput, hoyAR, sumarDias, parseFecha, fechaISO, diaSemana, DIAS, MESES,
+  sb, $, $$, esc, pesos, precioTexto, icono, iconoServicio, parsePesos, pesosInput, hoyAR, sumarDias, parseFecha, fechaISO, diaSemana, DIAS, MESES,
   fechaLarga, fechaCorta, fechaRelativa, capitalizar, duracionTexto, hora5, linkWhatsApp, toast, confirmar, abrirHoja,
   mensajeError, registrarSW,
 } from './comun.js';
@@ -13,18 +13,18 @@ const ESTADOS = { pendiente: 'Pendiente', aprobado: 'Aprobado', rechazado: 'Rech
 function pantallaAcceso(html) {
   app.hidden = true; acceso.hidden = false;
   acceso.innerHTML = `<div class="splash-contenido">
-    <img src="icons/icono.svg" alt="" class="splash-logo" width="88" height="88">
-    <h1 class="splash-titulo">Agenda Nail</h1>
-    <p class="splash-sub">Panel de la profesional</p>
-    <div class="splash-form">${html}</div>
+    <img src="icons/logo-kf.svg" alt="Katia Ferrero Nails" class="logo" width="112" height="112">
+    <h1 class="splash-titulo">¡Bienvenida!</h1>
+    <p class="splash-sub">Tu agenda de turnos</p>
+    <div class="splash-form"><span class="splash-icono" aria-hidden="true">${icono('usuario')}</span>${html}</div>
     <p class="splash-pie"><a href="./">Ver la página de reservas</a></p></div>`;
 }
 
 function formCuenta({ modo }) {
   const registro = modo === 'registro';
   pantallaAcceso(`
-    <h2 class="acceso-titulo">${registro ? 'Crear tu cuenta de profesional' : 'Entrar al panel'}</h2>
-    ${registro ? '<p class="texto-suave">Todavía no hay una profesional registrada. La primera cuenta que se cree será la dueña del panel.</p>' : ''}
+    <h2 class="acceso-titulo">${registro ? 'Crear tu cuenta' : 'Ingresar'}</h2>
+    <p class="acceso-sub">${registro ? 'Es la primera vez: la cuenta que crees ahora será la dueña de la agenda.' : 'Entra para ver y confirmar tus turnos.'}</p>
     <form id="f-acceso" novalidate>
       <div class="campo"><label for="a-email">Correo electrónico</label>
         <input id="a-email" type="email" autocomplete="email" required maxlength="120" placeholder="tu@correo.com"></div>
@@ -33,9 +33,10 @@ function formCuenta({ modo }) {
       ${registro ? `<div class="campo"><label for="a-pass2">Repite la contraseña</label>
         <input id="a-pass2" type="password" autocomplete="new-password" required minlength="8" maxlength="72"></div>` : ''}
       <p id="a-error" class="form-error-general" role="alert" hidden></p>
-      <button class="btn btn-primario btn-grande" type="submit">${registro ? 'Crear cuenta' : 'Entrar'}</button>
+      <button class="btn btn-primario btn-grande" type="submit">${registro ? 'Crear cuenta' : 'Ingresar'}</button>
     </form>
-    ${registro ? '<button class="btn-chico" id="a-cambiar">Ya tengo cuenta, quiero entrar</button>'
+    <div class="separador" aria-hidden="true">✦</div>
+    ${registro ? '<button class="btn-chico" id="a-cambiar">Ya tengo cuenta, quiero ingresar</button>'
     : '<button class="btn-chico" id="a-olvide">Olvidé mi contraseña</button>'}`);
   const err = (m) => { const e = $('#a-error'); e.textContent = m; e.hidden = !m; };
   $('#a-cambiar')?.addEventListener('click', () => formCuenta({ modo: 'login' }));
@@ -55,7 +56,7 @@ function formCuenta({ modo }) {
           pantallaAcceso(`<h2 class="acceso-titulo">Revisa tu correo</h2>
             <p>Te enviamos un enlace a <b>${esc(email)}</b> para confirmar tu cuenta. Ábrelo y después vuelve a esta página para entrar.</p>
             <p class="texto-suave">Si no lo ves, busca en la carpeta de spam o promociones.</p>
-            <button class="btn btn-primario btn-grande" id="a-ir-login">Ya confirmé, quiero entrar</button>`);
+            <button class="btn btn-primario btn-grande" id="a-ir-login">Ya confirmé, quiero ingresar</button>`);
           $('#a-ir-login').onclick = () => formCuenta({ modo: 'login' });
           return;
         }
@@ -104,7 +105,7 @@ async function entrar() {
   if (error) { toast(mensajeError(error), 'error'); return formCuenta({ modo: 'login' }); }
   if (!data) {
     pantallaAcceso(`<h2 class="acceso-titulo">Sin acceso</h2>
-      <p>Esta cuenta no tiene permiso para usar el panel. Solo la profesional dueña de la agenda puede entrar.</p>
+      <p>Esta cuenta no tiene permiso para usar el panel. Solo la dueña de la agenda puede ingresar.</p>
       <button class="btn btn-primario btn-grande" id="a-salir">Salir</button>`);
     $('#a-salir').onclick = salir;
     return;
@@ -154,17 +155,17 @@ async function cambiarEstado(t, estado) {
 }
 
 function mensajeParaClienta(t, tipo) {
-  const salon = P.config?.nombre_salon || 'el salón';
+  const firma = P.config?.nombre_salon || 'Katia Ferrero Nails';
   const cuando = `${fechaRelativa(t.fecha)} a las ${hora5(t.hora_inicio)} h`;
-  if (tipo === 'aprobado') return `¡Hola ${t.clienta_nombre}! Te confirmo tu turno de ${t.servicio_nombre} ${cuando} en ${salon}. ¡Te espero!`;
-  if (tipo === 'rechazado') return `¡Hola ${t.clienta_nombre}! Te escribo de ${salon}. No puedo tomar tu turno de ${t.servicio_nombre} ${cuando}. ¿Te sirve otro horario?`;
-  if (tipo === 'cancelado') return `¡Hola ${t.clienta_nombre}! Te escribo de ${salon}. Tuve que cancelar tu turno de ${t.servicio_nombre} ${cuando}. ¿Coordinamos otro?`;
-  return `¡Hola ${t.clienta_nombre}! Te escribo de ${salon} por tu pedido de turno de ${t.servicio_nombre} ${cuando}.`;
+  if (tipo === 'aprobado') return `¡Hola ${t.clienta_nombre}! Te confirmo tu turno de ${t.servicio_nombre} ${cuando}. ¡Te espero! ${firma}`;
+  if (tipo === 'rechazado') return `¡Hola ${t.clienta_nombre}! Te escribo de ${firma}. No puedo tomar tu turno de ${t.servicio_nombre} ${cuando}. ¿Te sirve otro horario?`;
+  if (tipo === 'cancelado') return `¡Hola ${t.clienta_nombre}! Te escribo de ${firma}. Tuve que cancelar tu turno de ${t.servicio_nombre} ${cuando}. ¿Coordinamos otro?`;
+  return `¡Hola ${t.clienta_nombre}! Te escribo de ${firma} por tu pedido de turno de ${t.servicio_nombre} ${cuando}.`;
 }
 
 function botonWhatsApp(t, tipo) {
   const link = t.clienta_telefono ? linkWhatsApp(t.clienta_telefono, mensajeParaClienta(t, tipo)) : '';
-  return link ? `<a class="btn btn-whatsapp btn-compacto" href="${link}" target="_blank" rel="noopener">Abrir WhatsApp</a>` : '';
+  return link ? `<a class="btn btn-whatsapp btn-compacto" href="${link}" target="_blank" rel="noopener">${icono('whatsapp')}WhatsApp</a>` : '';
 }
 
 function tarjetaTurno(t, { acciones }) {
@@ -176,7 +177,7 @@ function tarjetaTurno(t, { acciones }) {
       <span class="chip chip-${t.estado}">${ESTADOS[t.estado]}</span>
     </div>
     <p class="pedido-clienta">${esc(t.clienta_nombre)}</p>
-    <p class="pedido-servicio">${esc(t.servicio_nombre)} · <b>${pesos(t.precio)}</b></p>
+    <p class="pedido-servicio">${esc(t.servicio_nombre)}${t.precio == null ? '' : ` · <b>${pesos(t.precio)}</b>`}</p>
     ${t.clienta_telefono ? `<a class="enlace-tel" href="tel:${esc(t.clienta_telefono)}">${esc(t.clienta_telefono)}</a>` : ''}
     ${t.notas ? `<p class="pedido-notas">“${esc(t.notas)}”</p>` : ''}
     ${pasado && t.estado === 'pendiente' ? '<p class="ayuda ayuda-error">Esta fecha ya pasó.</p>' : ''}
@@ -186,11 +187,11 @@ function tarjetaTurno(t, { acciones }) {
 
 // ---------------- Vistas ----------------
 function cabecera(titulo, sub = '') {
-  return `<header class="cabecera cabecera-accion">
-    <div><p class="cabecera-pre">${esc(P.config?.nombre_salon || 'Agenda Nail')}</p><h1>${esc(titulo)}</h1>
-    ${sub ? `<p class="cabecera-sub">${sub}</p>` : ''}</div>
-    <button class="btn-icono btn-volver" id="btn-menu" aria-label="Más opciones"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></svg></button>
-  </header>`;
+  return `<header class="cabecera">
+    <img class="logo" src="icons/logo-kf.svg" alt="" width="48" height="48">
+    <div class="cabecera-textos"><p class="cabecera-pre">${esc(P.config?.nombre_salon || 'Katia Ferrero Nails')}</p><h1>${esc(titulo)}</h1></div>
+    <button class="btn-icono" id="btn-menu" aria-label="Más opciones"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></svg></button>
+  </header>${sub ? `<p class="cabecera-sub">${sub}</p>` : ''}`;
 }
 
 function enlazarMenu() {
@@ -320,9 +321,9 @@ async function vistaAgenda() {
 }
 
 async function vistaServicios() {
-  main.innerHTML = cabecera('Servicios', 'Lo que tus clientas pueden reservar') + `<section class="tarjeta">
+  main.innerHTML = cabecera('Servicios', 'Toca un servicio para cambiar nombre, precio o duración.') + `<section class="tarjeta">
     <ul class="lista-servicios" id="lista"><li class="cargando"><span class="spinner"></span> Cargando…</li></ul>
-    <button class="btn btn-primario btn-grande" id="nuevo">Agregar servicio</button></section>`;
+    <button class="btn-agregar" id="nuevo">${icono('mas')}Agregar servicio</button></section>`;
   enlazarMenu();
   $('#nuevo').onclick = () => editarServicio(null);
   const sigue = vigente();
@@ -330,8 +331,9 @@ async function vistaServicios() {
   if (!sigue()) return;
   if (error) { $('#lista').innerHTML = `<li class="vacio">${esc(mensajeError(error))}</li>`; return; }
   $('#lista').innerHTML = data.length ? data.map((s) => `<li><button class="fila-servicio${s.activo ? '' : ' inactivo'}" data-id="${s.id}">
+      <span class="miniatura" aria-hidden="true">${iconoServicio(s.nombre)}</span>
       <div class="fila-servicio-info"><strong>${esc(s.nombre)}</strong><small>${duracionTexto(s.duracion_min)}${s.activo ? '' : ' · <b>Desactivado</b>'}</small></div>
-      <span class="fila-servicio-precio">${pesos(s.precio)}</span></button></li>`).join('')
+      <span class="fila-servicio-precio${s.precio == null ? ' sin-precio' : ''}">${s.precio == null ? 'Sin precio' : pesos(s.precio)}</span>${icono('lapiz', 'editar')}</button></li>`).join('')
     : '<li class="vacio">Todavía no cargaste servicios. Agrega al menos uno para que tus clientas puedan reservar.</li>';
   $$('#lista .fila-servicio').forEach((b) => b.onclick = () => editarServicio(data.find((s) => s.id === b.dataset.id)));
 }
@@ -340,11 +342,12 @@ function editarServicio(s) {
   const nuevo = !s;
   const { capa, cerrar } = abrirHoja(nuevo ? 'Nuevo servicio' : 'Editar servicio', `
     <form id="f-srv" novalidate>
-      <div class="campo"><label for="s-nombre">Nombre</label><input id="s-nombre" maxlength="80" required value="${esc(s?.nombre || '')}" placeholder="Ej.: Esmaltado semipermanente"></div>
+      <div class="campo"><label for="s-nombre">Nombre</label><input id="s-nombre" maxlength="80" required value="${esc(s?.nombre || '')}" placeholder="Ej.: Semipermanente"></div>
       <div class="fila-2">
-        <div class="campo"><label for="s-precio">Precio</label><div class="input-pesos"><span>$</span><input id="s-precio" inputmode="numeric" value="${pesosInput(s?.precio ?? '')}" placeholder="12.500"></div></div>
+        <div class="campo"><label for="s-precio">Precio (opcional)</label><div class="input-pesos"><span>$</span><input id="s-precio" inputmode="numeric" value="${pesosInput(s?.precio ?? '')}" placeholder="15.000"></div></div>
         <div class="campo"><label for="s-dur">Duración</label><select id="s-dur">${[15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 210, 240].map((d) => `<option value="${d}" ${(s?.duracion_min || 60) === d ? 'selected' : ''}>${duracionTexto(d)}</option>`).join('')}</select></div>
       </div>
+      <p class="ayuda" style="margin:-6px 0 12px">Si dejas el precio vacío, tus clientas verán “Consultar precio”.</p>
       ${nuevo ? '' : `<label class="interruptor"><input type="checkbox" id="s-activo" ${s.activo ? 'checked' : ''}><span>Visible para reservar</span></label>`}
       <p id="s-error" class="form-error-general" hidden></p>
       <button class="btn btn-primario btn-grande" type="submit">Guardar</button>
@@ -356,7 +359,6 @@ function editarServicio(s) {
     const nombre = $('#s-nombre', capa).value.trim(), p = parsePesos(precio.value);
     const err = $('#s-error', capa);
     if (!nombre) { err.textContent = 'Escribe el nombre del servicio.'; err.hidden = false; return; }
-    if (p === null) { err.textContent = 'Escribe el precio.'; err.hidden = false; return; }
     const fila = { nombre, precio: p, duracion_min: Number($('#s-dur', capa).value) };
     if (!nuevo) fila.activo = $('#s-activo', capa).checked;
     const b = ev.submitter; b.disabled = true;
@@ -379,11 +381,11 @@ async function vistaHorarios() {
   const orden = [1, 2, 3, 4, 5, 6, 0];
   $('#h-cont').innerHTML = `<form id="f-hor" novalidate>
     <section class="tarjeta">
-      <div class="tarjeta-titulo"><h2>Tu salón</h2></div>
-      <div class="campo"><label for="c-nombre">Nombre del salón</label><input id="c-nombre" maxlength="60" required value="${esc(c.nombre_salon)}"></div>
-      <div class="campo"><label for="c-wa">Tu WhatsApp (opcional)</label><input id="c-wa" type="tel" inputmode="tel" maxlength="25" value="${esc(c.whatsapp || '')}" placeholder="Ej.: 11 2345 6789">
-        <p class="ayuda">Se muestra a la clienta después de pedir el turno, para que pueda escribirte.</p></div>
-      <div class="campo"><label for="c-dir">Dirección o zona (opcional)</label><input id="c-dir" maxlength="120" value="${esc(c.direccion || '')}" placeholder="Ej.: Palermo, CABA"></div>
+      <div class="tarjeta-titulo"><h2>Tus datos</h2></div>
+      <div class="campo"><label for="c-nombre">Tu nombre o marca</label><input id="c-nombre" maxlength="60" required value="${esc(c.nombre_salon)}"></div>
+      <div class="campo"><label for="c-wa">Tu WhatsApp (opcional)</label><input id="c-wa" type="tel" inputmode="tel" maxlength="25" value="${esc(c.whatsapp || '')}" placeholder="Ej.: 353 412 5853">
+        <p class="ayuda">Aparece en tu página de reservas para que tus clientas puedan escribirte.</p></div>
+      <div class="campo"><label for="c-dir">Zona (opcional)</label><input id="c-dir" maxlength="120" value="${esc(c.direccion || '')}" placeholder="Ej.: Tío Pujio, Córdoba"></div>
     </section>
     <section class="tarjeta">
       <div class="tarjeta-titulo"><h2>Días y horarios</h2></div>
@@ -412,7 +414,7 @@ async function vistaHorarios() {
     const err = $('#h-error'); err.hidden = true;
     const nombre = $('#c-nombre').value.trim();
     const waTxt = $('#c-wa').value.replace(/\D/g, '').replace(/^0/, '');
-    if (!nombre) { err.textContent = 'Escribe el nombre del salón.'; err.hidden = false; return; }
+    if (!nombre) { err.textContent = 'Escribe tu nombre o marca.'; err.hidden = false; return; }
     if (waTxt && !/^[0-9]{8,15}$/.test(waTxt)) { err.textContent = 'Revisa el número de WhatsApp.'; err.hidden = false; return; }
     const filas = $$('.fila-horario').map((f) => ({ dia: Number(f.dataset.dia), trabaja: $('.h-trabaja', f).checked, inicio: $('.h-ini', f).value, fin: $('.h-fin', f).value }));
     const mala = filas.find((h) => h.trabaja && (!h.inicio || !h.fin || h.fin <= h.inicio));

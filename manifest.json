@@ -1,17 +1,18 @@
 {
-  "name": "Agenda Nail · Reservas",
-  "short_name": "Agenda Nail",
-  "description": "Reserva tu turno de uñas online.",
+  "name": "Katia Ferrero Nails · Turnos",
+  "short_name": "Katia Nails",
+  "description": "Reserva tu turno con Katia Ferrero Nails (Tío Pujio, Córdoba).",
   "lang": "es",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f9b9bd",
-  "theme_color": "#f07a86",
+  "background_color": "#fbeef2",
+  "theme_color": "#fbeef2",
   "icons": [
     { "src": "icons/icono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "icons/icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    { "src": "icons/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }
