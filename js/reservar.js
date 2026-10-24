@@ -30,7 +30,8 @@ async function iniciar() {
 
 function fallo(msg) {
   barra.hidden = true;
-  app.innerHTML = cabecera() + `<div class="tarjeta centrado"><h2>Ups</h2><p class="texto-suave">${esc(msg)}</p></div>`;
+  app.innerHTML = cabecera() + `<div class="tarjeta centrado"><h2>Ups</h2><p class="texto-suave">${esc(msg)}</p></div>
+    <p class="pie-pro"><a href="panel.html">Acceso profesional</a></p>`;
 }
 
 function cabecera() {
