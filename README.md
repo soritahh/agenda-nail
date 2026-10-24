@@ -1,53 +1,63 @@
 # Agenda Nail
 
-App de turnos para manicuras independientes (primera versión esencial). Funciona en el navegador del celular, la tablet o la computadora, y se puede instalar como app (PWA). Los datos se guardan **solo en el dispositivo** (IndexedDB); no hay cuentas, sincronización ni notificaciones todavía.
+App de turnos online para manicuras independientes.
 
-## Cómo abrirla
+- **Página de reservas** (`index.html`): la clienta elige servicio, día y horario libre, deja su nombre y WhatsApp y envía el pedido. El pedido queda **pendiente** hasta que la profesional lo confirme.
+- **Panel de la profesional** (`panel.html`): la profesional entra con su correo y contraseña y aprueba o rechaza los pedidos, ve su agenda y carga sus servicios y horarios.
 
-La app necesita un servidor web estático (abrir `index.html` con doble clic no alcanza, porque usa módulos JavaScript y service worker).
+Sitio publicado: <https://soritahh.github.io/agenda-nail/>
+Panel: <https://soritahh.github.io/agenda-nail/panel.html>
+
+## Primer uso (profesional)
+
+1. Abre `panel.html`. Si todavía no hay una profesional registrada, verás **Crear tu cuenta de profesional**.
+2. Crea la cuenta con tu correo y una contraseña de 8 caracteres o más. Supabase te envía un correo para confirmarla. Ábrelo y vuelve a entrar.
+3. **La primera cuenta que entra queda como dueña del panel.** Las cuentas que se creen después no tienen acceso.
+4. En **Horarios**, carga el nombre del salón, tu WhatsApp (opcional), los días y horarios de atención, cada cuántos minutos empiezan los turnos y con cuánta anticipación se puede reservar.
+5. En **Servicios**, agrega lo que ofreces, con precio y duración.
+6. Comparte el link de reservas con tus clientas. Lo puedes copiar desde el menú ⋮ del panel.
+
+## Qué hace el panel
+
+- **Pedidos**: la lista de pedidos pendientes, con botones *Aprobar* y *Rechazar* (rechazar pide confirmación). El botón *Abrir WhatsApp* abre un chat con la clienta y un mensaje ya escrito. **El mensaje no se envía solo**: tú lo envías desde WhatsApp. El número sobre *Pedidos* en la barra inferior indica cuántos hay pendientes.
+- **Agenda**: un calendario mensual con puntos para los turnos aprobados y los pendientes. Al tocar un día ves sus turnos y puedes cancelarlos (con confirmación).
+- **Servicios**: agregar, editar o desactivar servicios. Un servicio desactivado no se muestra a las clientas.
+- **Horarios**: los datos del salón y el horario semanal.
+
+Al rechazar o cancelar un turno, ese horario vuelve a quedar libre para reservar.
+
+## Qué hace la página de reservas
+
+Los pasos son: 1) servicio, 2) día, 3) horario (separado en mañana y tarde) y 4) datos. La barra inferior muestra el resumen y el botón *Pedir turno*. Solo aparecen los horarios libres, calculados con la duración del servicio. Al terminar, la clienta ve un resumen del pedido y, si el salón cargó su WhatsApp, un botón para escribirle.
+
+La clienta **no** ve los nombres ni los teléfonos de otras clientas: la página solo recibe qué rangos de horario están ocupados.
+
+## Cómo funciona por dentro
+
+- Es un sitio estático (HTML, CSS y JavaScript sin compilación), publicado con GitHub Pages.
+- Los datos están en **Supabase**, en el proyecto `agenda-nail`. El frontend usa solo la clave pública (*publishable*) en `js/config.js`. Esa clave puede ser pública: la seguridad la dan las reglas RLS de la base.
+- El esquema está en `supabase/migrations/0001_esquema_inicial.sql`:
+  - tablas `config`, `horarios`, `servicios`, `turnos` y `admins`, todas con RLS;
+  - las clientas no pueden leer la tabla `turnos`. Para reservar usan la función `solicitar_turno`, que valida los datos, el horario de atención y la anticipación, limita los pedidos repetidos y siempre crea el turno como *pendiente*;
+  - una restricción de exclusión en la base impide que dos turnos pendientes o aprobados se superpongan, incluso si dos clientas reservan al mismo tiempo;
+  - `horarios_ocupados` devuelve solo fecha y hora de los rangos ocupados;
+  - `reclamar_profesional` registra como dueña a la primera cuenta y rechaza a las demás.
+- El service worker (`sw.js`) usa la estrategia "primero la red": siempre carga la versión más nueva y usa la copia guardada solo si no hay conexión.
+
+## Probar en tu computadora
 
 ```bash
 cd agenda-nail
 python3 -m http.server 8080
 ```
 
-Luego abre `http://localhost:8080` en el navegador. Para probarla en el celular dentro de la misma red Wi-Fi, usa la IP de la computadora (por ejemplo `http://192.168.0.10:8080`). Ten en cuenta que la instalación como app y el modo sin conexión requieren `https` o `localhost`.
+Abre `http://localhost:8080`. La copia local usa la misma base de Supabase que el sitio publicado.
 
-## Qué incluye
+## Configuración pendiente en Supabase (desde el panel web de Supabase)
 
-- **Bienvenida** (solo la primera vez): pide tu nombre o el de tu salón.
-- **Inicio**: saludo, fecha de hoy, cantidad de turnos y lista de turnos del día. Botón grande *Nuevo turno*.
-- **Agenda**: calendario mensual con puntitos en los días con turnos, lista del día elegido, navegación por mes y por día. Toca un turno para ver el detalle, cambiar el estado (pendiente, confirmado, completado, cancelado), reprogramar/editar, cancelar o eliminar (con confirmación).
-- **Nuevo turno**: busca una clienta o escribe un nombre nuevo (se crea sola), elige el servicio (completa precio y duración, que puedes cambiar), fecha, hora, seña opcional y notas. Calcula el saldo pendiente. No permite turnos superpuestos con otros no cancelados del mismo día. El turno guarda el nombre y el precio del servicio de ese momento.
-- **Clientas**: lista con búsqueda por nombre o teléfono, alta y edición, historial de turnos de cada una.
-- **Servicios**: alta, edición y borrado (con confirmación). Botón opcional *Cargar servicios sugeridos* (aparecen sin precio para que pongas el tuyo).
-- **Ajustes**: nombre de la profesional o del salón.
+- **Authentication → URL Configuration**: pon `https://soritahh.github.io/agenda-nail/panel.html` como *Site URL* y agrégala en *Redirect URLs*. Así los enlaces de confirmación y de recuperación de contraseña vuelven al panel.
+- **Correo**: el servidor de correo que trae Supabase por defecto tiene un límite muy bajo y puede enviar solo a direcciones del equipo del proyecto. Para que la profesional reciba el correo de confirmación, agrega su correo al equipo de la organización o configura un SMTP propio (*Authentication → SMTP Settings*).
 
-## Archivos
+## Versión anterior
 
-```
-index.html          Estructura y navegación inferior
-css/estilos.css     Estilos (mobile-first)
-js/app.js           Arranque, bienvenida y ruteo
-js/db.js            Envoltorio de IndexedDB
-js/datos.js         Reglas: clientas, servicios, turnos, superposición, saldo
-js/estado.js        Estado compartido y navegación
-js/util.js          Formato de pesos y fechas, hojas modales, avisos, validación
-js/inicio.js, agenda.js, turnos.js, clientas.js, servicios.js, ajustes.js   Pantallas
-manifest.json, sw.js, icons/   PWA e íconos
-capturas/           Capturas de pantalla de la prueba
-```
-
-## Cómo probarla rápido
-
-1. Abre la app, escribe tu nombre y toca *Empezar*.
-2. Ve a *Servicios*, toca *Cargar servicios sugeridos* y ponle precio a alguno (o agrega uno propio).
-3. En *Inicio*, toca *Nuevo turno*, escribe una clienta nueva, elige el servicio y la hora, y guarda.
-4. Recarga la página: el turno sigue ahí.
-5. Intenta crear otro turno que se pise con el anterior: la app lo bloquea y te dice con quién choca.
-6. En *Agenda*, toca el turno y cámbiale el estado.
-7. En *Clientas*, abre la clienta y mira su historial.
-
-## Para más adelante (no incluido)
-
-Horarios de trabajo, módulo de ganancias, recordatorios/notificaciones, respaldo o sincronización entre dispositivos.
+La primera versión guardaba los datos solo en el navegador (IndexedDB). El sitio publicado ya no la usa. Hay una copia completa de esa versión en `agenda-nail-v1-respaldo/`, fuera del repositorio.

@@ -1,9 +1,9 @@
 {
-  "name": "Agenda Nail",
+  "name": "Agenda Nail · Reservas",
   "short_name": "Agenda Nail",
-  "description": "Agenda de turnos para manicuras independientes.",
+  "description": "Reserva tu turno de uñas online.",
   "lang": "es",
-  "start_url": "./index.html#/inicio",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

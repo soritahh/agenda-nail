@@ -1,0 +1,17 @@
+{
+  "name": "Agenda Nail · Panel",
+  "short_name": "Panel Nail",
+  "description": "Panel de la profesional: pedidos, agenda, servicios y horarios.",
+  "lang": "es",
+  "start_url": "./panel.html#/pedidos",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f9b9bd",
+  "theme_color": "#f07a86",
+  "icons": [
+    { "src": "icons/icono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
