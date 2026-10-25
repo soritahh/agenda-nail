@@ -3,7 +3,8 @@ import {
   sb, $, $$, esc, pesos, precioTexto, icono, iconoServicio, parsePesos, pesosInput, hoyAR, sumarDias, parseFecha, fechaISO, diaSemana, DIAS, MESES,
   fechaLarga, fechaCorta, fechaRelativa, capitalizar, duracionTexto, hora5, linkWhatsApp, toast, confirmar, abrirHoja,
   mensajeError, registrarSW, logoHTML, aplicarColor, COLOR_BASE, horariosLibres, normalizarTelefono,
-} from './comun.js';
+  DEMO, bannerDemo, reiniciarDemo,
+} from './comun.js?v=p3';
 import { BUCKET_LOGOS } from './config.js';
 
 const acceso = $('#acceso'), app = $('#app'), main = $('#contenido');
@@ -12,6 +13,8 @@ const ESTADOS = { pendiente: 'Por confirmar', aprobado: 'Confirmado', rechazado:
 
 // ---------------- Acceso ----------------
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$/;
+// Los links de confirmación / recuperación de los correos vuelven siempre al panel publicado.
+const URL_PANEL = 'https://soritahh.github.io/agenda-nail/pro/panel.html';
 const linkPublico = (slug) => new URL(`r/?m=${encodeURIComponent(slug)}`, location.href.split('#')[0]).href;
 const aSlug = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-').slice(0, 30).replace(/-+$/, '');
@@ -100,7 +103,7 @@ function formCuenta({ modo }) {
         const { data: libre } = await sb.rpc('pro_slug_disponible', { p_slug: agenda.slug });
         if (libre === false) throw new Error('SLUG_EN_USO');
         const { data, error } = await sb.auth.signUp({ email, password: pass,
-          options: { emailRedirectTo: location.href.split('#')[0], data: { pro_nombre: agenda.nombre, pro_slug: agenda.slug } } });
+          options: { emailRedirectTo: URL_PANEL, data: { pro_nombre: agenda.nombre, pro_slug: agenda.slug } } });
         if (error) throw error;
         if (!data.session) {
           pantallaAcceso(`<h2 class="acceso-titulo">Revisa tu correo</h2>
@@ -131,7 +134,7 @@ function formCuenta({ modo }) {
 async function olvideContrasena() {
   const email = ($('#a-email')?.value || '').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('Escribe tu correo arriba y vuelve a tocar “Olvidé mi contraseña”.', 'aviso'); return; }
-  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.href.split('#')[0] });
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: URL_PANEL });
   if (error) toast(mensajeError(error), 'error');
   else toast('Si el correo tiene cuenta, te llegará un enlace para cambiar la contraseña.');
 }
@@ -213,6 +216,7 @@ async function entrar() {
     return formCuenta({ modo: 'login' });
   }
   acceso.hidden = true; app.hidden = false;
+  bannerDemo({ enlace: 'r/?m=demo', texto: 'Ver página de reservas' });
   aplicarColor(P.pro.color);
   if (/access_token|error_description/.test(location.hash)) history.replaceState(null, '', location.pathname + '#/agenda');
   actualizarBadge();
@@ -287,7 +291,7 @@ function tarjetaTurno(t, { acciones, sinFecha = false }) {
 function cabecera() {
   return `<header class="barra-panel">
     ${logoHTML(P.pro || {}, 44)}
-    <div class="barra-panel-textos"><strong>${esc(P.pro?.nombre || '')}</strong><span>Tu agenda de turnos</span></div>
+    <div class="barra-panel-textos"><strong>${esc(P.pro?.nombre || '')}${DEMO ? '<span class="etiqueta-demo">Demo</span>' : ''}</strong><span>Tu agenda de turnos</span></div>
     <button class="btn-link-top" id="btn-link" aria-label="Tu link para clientas">${icono('enlace')}Link</button>
   </header>`;
 }
@@ -609,15 +613,17 @@ async function vistaAjustes(param) {
     </section>
     <section class="tarjeta">
       <div class="tarjeta-titulo"><h2>Tu cuenta</h2></div>
-      <p class="texto-suave">Sesión: ${esc(P.user?.email || '')}</p>
-      <button type="button" class="btn btn-texto-peligro" id="cerrar-sesion">Cerrar sesión</button>
+      ${DEMO ? `<p class="texto-suave">Estás viendo la demo: los cambios se guardan solo en este dispositivo.</p>
+      <button type="button" class="btn btn-texto-peligro" id="cerrar-sesion">Reiniciar demo</button>` : `<p class="texto-suave">Sesión: ${esc(P.user?.email || '')}</p>
+      <button type="button" class="btn btn-texto-peligro" id="cerrar-sesion">Cerrar sesión</button>`}
     </section>
     <p class="pie">Agenda Nail · ${esc(c.nombre)}</p>`;
   enlazarCabecera();
   $('#p-copiar').onclick = () => copiarLink(link, $('#p-link'));
   $('#p-compartir').onclick = () => compartirLink(link);
   $('#nuevo-srv').onclick = () => editarServicio(null);
-  $('#cerrar-sesion').onclick = async () => { if (await confirmar({ titulo: '¿Cerrar sesión?', texto: 'Vas a tener que ingresar de nuevo con tu correo y contraseña.', si: 'Cerrar sesión' })) salir(); };
+  if (DEMO) $('#cerrar-sesion').onclick = async () => { if (await confirmar({ titulo: '¿Reiniciar la demo?', texto: 'Se borran los turnos y cambios de prueba de este dispositivo.', si: 'Reiniciar', peligro: true })) { reiniciarDemo(); location.reload(); } };
+  else $('#cerrar-sesion').onclick = async () => { if (await confirmar({ titulo: '¿Cerrar sesión?', texto: 'Vas a tener que ingresar de nuevo con tu correo y contraseña.', si: 'Cerrar sesión' })) salir(); };
 
   // Color (vista previa en vivo; se guarda con "Guardar ajustes")
   let color = c.color || null;

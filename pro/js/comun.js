@@ -1,11 +1,27 @@
 // Utilidades compartidas por la página de reservas y el panel.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm';
 import { SUPABASE_URL, SUPABASE_KEY, ZONA, BUCKET_LOGOS } from './config.js';
+import { DEMO, DEMO_AVISO, crearClienteDemo, logoDemo, reiniciarDemo } from './demo.js?v=p3';
 
-export const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
+export { DEMO, DEMO_AVISO, reiniciarDemo };
+// En modo demo (r/?m=demo, panel.html?demo=1) todo vive en este dispositivo: no se toca la base real.
+export const sb = DEMO ? crearClienteDemo() : createClient(SUPABASE_URL, SUPABASE_KEY, {
   // storageKey propio: la sesión de la versión PRO no se mezcla con la del panel de la raíz.
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'agenda-nail-pro-auth' },
 });
+
+/** Franja fija "Modo demo" con un enlace al otro lado de la demo y botón para reiniciarla. */
+export function bannerDemo({ enlace, texto }) {
+  if (!DEMO || document.getElementById('banner-demo')) return;
+  document.body.classList.add('con-demo');
+  document.body.insertAdjacentHTML('afterbegin', `<div class="banner-demo" id="banner-demo" role="note">
+    <span><b>Demo</b> · ${esc(DEMO_AVISO)}</span>
+    <span class="banner-demo-acc"><a href="${esc(enlace)}">${esc(texto)}</a><button type="button" id="demo-reiniciar">Reiniciar</button></span></div>`);
+  document.getElementById('demo-reiniciar').onclick = async () => {
+    if (!await confirmar({ titulo: '¿Reiniciar la demo?', texto: 'Se borran los turnos y cambios de prueba de este dispositivo.', si: 'Reiniciar', peligro: true })) return;
+    reiniciarDemo(); location.reload();
+  };
+}
 
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -177,6 +193,7 @@ export function registrarSW(ruta = './sw.js') {
 
 // ---------- Marca de cada manicurista ----------
 export function urlLogo(path) {
+  if (DEMO) return path ? logoDemo(path) : '';
   return path ? `${SUPABASE_URL}/storage/v1/object/public/${BUCKET_LOGOS}/${path.split('/').map(encodeURIComponent).join('/')}` : '';
 }
 export function iniciales(nombre) {

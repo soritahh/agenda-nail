@@ -50,7 +50,7 @@ function formCuenta({ modo }) {
     const b = ev.submitter || $('#f-acceso button[type=submit]'); b.disabled = true;
     try {
       if (registro) {
-        const { data, error } = await sb.auth.signUp({ email, password: pass, options: { emailRedirectTo: location.href.split('#')[0] } });
+        const { data, error } = await sb.auth.signUp({ email, password: pass, options: { emailRedirectTo: 'https://soritahh.github.io/agenda-nail/panel.html' } });
         if (error) throw error;
         if (!data.session) {
           pantallaAcceso(`<h2 class="acceso-titulo">Revisa tu correo</h2>
@@ -80,7 +80,7 @@ function formCuenta({ modo }) {
 async function olvideContrasena() {
   const email = ($('#a-email')?.value || '').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('Escribe tu correo arriba y vuelve a tocar “Olvidé mi contraseña”.', 'aviso'); return; }
-  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.href.split('#')[0] });
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: 'https://soritahh.github.io/agenda-nail/panel.html' });
   if (error) toast(mensajeError(error), 'error');
   else toast('Si el correo tiene cuenta, te llegará un enlace para cambiar la contraseña.');
 }

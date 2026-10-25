@@ -2,8 +2,8 @@
 import {
   sb, $, $$, esc, precioTexto, icono, iconoServicio, hoyAR, sumarDias, diaSemana, DIAS_CORTOS, fechaLarga, capitalizar, fechaRelativa,
   duracionTexto, horariosLibres, aMin, normalizarTelefono, linkWhatsApp, toast, mensajeError, registrarSW, hora5,
-  logoHTML, aplicarColor,
-} from './comun.js';
+  logoHTML, aplicarColor, DEMO, bannerDemo,
+} from './comun.js?v=p3';
 
 const S = { config: null, horarios: [], servicios: [], ocupados: [], listo: false, servicio: null, fecha: null, hora: null, enviando: false };
 const app = $('#app'), barra = $('#barra'), btn = $('#btn-reservar');
@@ -26,6 +26,7 @@ async function iniciar() {
     return fallo(mensajeError(e));
   }
   aplicarColor(S.config.color);
+  bannerDemo({ enlace: '../panel.html?demo=1', texto: 'Ver panel de la dueña' });
   document.title = `Reserva tu turno · ${S.config.nombre_salon}`;
   if (!S.servicios.length) return fallo('Por ahora no hay servicios para reservar online. Escríbeme por WhatsApp o vuelve pronto.');
   S.servicio = S.servicios[0].id;
@@ -52,7 +53,7 @@ function cabecera(intro = true) {
   const ig = c.instagram ? `https://www.instagram.com/${encodeURIComponent(c.instagram)}/` : '';
   return `<header class="perfil">
     ${logoHTML({ nombre: c.nombre_salon, logo_path: c.logo_path }, 104)}
-    <h1>${esc(c.nombre_salon)}</h1>
+    <h1>${esc(c.nombre_salon)}${DEMO ? '<span class="etiqueta-demo">Demo</span>' : ''}</h1>
     ${c.direccion ? `<p class="perfil-zona">${icono('pin')}${esc(c.direccion)}</p>` : ''}
     ${ig || wa ? `<div class="perfil-redes">
       ${ig ? `<a class="red" href="${ig}" target="_blank" rel="noopener" aria-label="Instagram @${esc(c.instagram)}">${icono('instagram')}Instagram</a>` : ''}

@@ -64,6 +64,13 @@ set user_id = (select id from auth.users where email = 'correo-de-katia@ejemplo.
 where slug = 'katia';
 ```
 
+## Demo para mostrar
+
+- Página de reservas: `https://soritahh.github.io/agenda-nail/pro/r/?m=demo`
+- Panel de la dueña (sin cuenta): `https://soritahh.github.io/agenda-nail/pro/panel.html?demo=1`
+
+La demo usa la marca de ejemplo "Tu Marca Nails". Todo se guarda en el navegador (`localStorage`) del dispositivo: no toca la base de datos ni se mezcla con agendas reales. Un turno pedido en la demo aparece en el panel demo del mismo dispositivo. El botón *Reiniciar* vuelve a los datos de ejemplo. El código está en `js/demo.js`.
+
 ## Probar en tu computadora
 
 Copia la carpeta como `pro/` dentro de una copia del repositorio y sirve la raíz:
@@ -77,5 +84,8 @@ Abre `http://localhost:8080/pro/`. La copia local usa la misma base de Supabase 
 ## Configuración pendiente en Supabase
 
 - **Correo (Authentication → SMTP Settings)**: el servidor de correo por defecto de Supabase tiene un límite muy bajo. Durante las pruebas, el registro devolvió "Demasiados intentos" (error 429). Configura un SMTP propio antes de abrir el registro a muchas manicuristas.
-- **Authentication → URL Configuration**: agrega `https://soritahh.github.io/agenda-nail/pro/panel.html` en *Redirect URLs*.
+- **Authentication → URL Configuration** (sin esto, los enlaces de los correos siguen yendo a `localhost`):
+  - *Site URL*: `https://soritahh.github.io/agenda-nail/panel.html`
+  - *Redirect URLs*: agrega `https://soritahh.github.io/agenda-nail/panel.html` y `https://soritahh.github.io/agenda-nail/pro/panel.html`.
+  El código ya manda esas direcciones en `emailRedirectTo` / `redirectTo`, pero Supabase sólo las usa si están en esa lista.
 - **Authentication → Attack Protection**: activa la protección contra contraseñas filtradas.

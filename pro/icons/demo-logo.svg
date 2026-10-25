@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Tu Marca Nails">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff7fb"/><stop offset="1" stop-color="#fbd9e8"/></linearGradient>
+    <linearGradient id="o" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d9a35f"/><stop offset=".5" stop-color="#f3d39b"/><stop offset="1" stop-color="#b8833f"/></linearGradient>
+  </defs>
+  <circle cx="100" cy="100" r="98" fill="url(#g)"/>
+  <circle cx="100" cy="100" r="86" fill="none" stroke="url(#o)" stroke-width="2.5"/>
+  <circle cx="100" cy="100" r="80" fill="none" stroke="url(#o)" stroke-width="0.8"/>
+  <text x="100" y="118" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-size="62" font-style="italic" fill="#6e1f47">TM</text>
+  <text x="100" y="146" text-anchor="middle" font-family="Georgia, serif" font-size="11" letter-spacing="4" fill="#b8833f">NAILS</text>
+  <path d="M100 44l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" fill="url(#o)"/>
+</svg>
