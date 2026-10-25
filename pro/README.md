@@ -10,8 +10,8 @@ Esta versión vive en la carpeta `pro/` del repositorio y **no toca** la agenda 
 
 ## Cómo es para la manicurista
 
-1. No hay registro público. Un superadmin crea la agenda (link, marca, WhatsApp, Instagram, zona y estado) y le da un **PIN de 6 números**.
-2. Para entrar al panel escribe el nombre de su agenda (lo que va después de `?m=` en su link, por ejemplo `mi-marca`) y su PIN. **No usa correo.** Si olvida el PIN, se lo pide a Agustin, que le crea uno nuevo.
+1. No hay registro público. Un superadmin crea la agenda (link, marca, WhatsApp, Instagram, zona y estado) y le pasa un **código de activación** de 8 caracteres (sirve una sola vez y vence en 7 días).
+2. La primera vez, en el panel toca *Activar mi agenda*, escribe el nombre de su agenda (lo que va después de `?m=` en su link, por ejemplo `mi-marca`) y el código, y **elige ella su PIN de 6 números** (dos veces). Después entra siempre con su agenda y su PIN. **No usa correo.** Puede cambiar el PIN en *Ajustes → Cambiar mi PIN* (pide el PIN actual). Si lo olvida, Agustin le genera un código nuevo: el PIN anterior deja de servir y ella elige otro.
 3. Con la agenda activa, el panel tiene cuatro pestañas:
    - **Agenda**: el día elegido, con flechas para cambiar de día, una tira de días con la cantidad de turnos de cada uno (o "cerrado"), un aviso si hay pedidos por confirmar, dos contadores (turnos del día y por confirmar), la lista de turnos y un botón *Agregar turno este día*.
    - **Próximos**: los turnos de hoy en adelante, con filtros *Activos*, *Por confirmar*, *Confirmados*, *Cancelados* y *Todos*. Cada pedido tiene *Confirmar*, *Rechazar* (con confirmación) y *WhatsApp*, que abre un chat con un mensaje ya escrito. **El mensaje no se envía solo.** Un turno confirmado se puede cancelar (con confirmación).
@@ -34,7 +34,12 @@ El precio de un servicio es opcional. Si queda vacío, la clienta ve "Consultar 
   - carga a Katia Ferrero Nails (`katia`, activa, sin cuenta asignada).
 - `0004_admin_clientas.sql`: tabla `admin_clientas` (ficha comercial de cada clienta), que solo leen y editan los superadmins.
 - `0006_pro_acceso_pin.sql`: entrada con PIN. Quita el registro público (`pro_registrar` ya no se puede llamar desde la web), agrega `pro_admin_crear_agenda` (solo superadmins) y dos funciones internas que solo puede usar la Edge Function.
-- `supabase/functions/admin-pin`: Edge Function que crea o cambia el PIN. Comprueba que quien llama es superadmin (si no, responde 403), rechaza PIN fáciles (`000000`, `123456`, `121212`…) y crea la cuenta de la manicurista con un correo interno que no existe (`<slug>@pin.agenda-nail.invalid`) y el PIN como contraseña. Nunca se manda un correo. Al cambiar el PIN se cierran las sesiones abiertas. La clave de servicio solo vive en las variables de la función, no en el repositorio.
+- `0007_pro_codigo_activacion.sql`: tabla `pro_activaciones` con los códigos de activación (solo se guarda un hash, nadie la puede leer desde la web) y el vencimiento del código en `pro_admin_lista`.
+- `supabase/functions/admin-pin`: Edge Function con tres acciones:
+  - `codigo`: solo superadmins (si no, 403). Genera el código de activación y, si ya tenía PIN, lo anula y cierra sus sesiones.
+  - `activar`: la manicurista, con su agenda + código + el PIN que elige. Crea o reactiva su cuenta con un correo interno que no existe (`<slug>@pin.agenda-nail.invalid`) y el PIN como contraseña. El código se borra al usarse. Nunca se manda un correo.
+  - `cambiar`: la manicurista con sesión abierta, con su PIN actual + uno nuevo. Cierra sus otras sesiones.
+  Rechaza PIN fáciles (`000000`, `123456`, `121212`…). La clave de servicio solo vive en las variables de la función, no en el repositorio.
 - `0005_pro_turno_manual.sql`: el teléfono del turno pasa a ser opcional y se agrega la función `pro_turno_manual` para la pestaña *Nuevo*. Solo la usa una manicurista activa sobre sus propios servicios y valida la fecha, la hora y que no se superponga con otro turno.
 
 ## Superadmin
@@ -50,13 +55,14 @@ Para quitarlo: `delete from public.superadmins where user_id = (select id from a
 
 ## Darle acceso a Katia
 
-La agenda `katia` existe y está activa, pero todavía no tiene PIN. Un superadmin le crea uno desde su página de gestión (*Agendas → Crear PIN*). Después Katia entra al panel con `katia` y ese PIN.
+La agenda `katia` existe y está activa, pero todavía no tiene PIN. Un superadmin le genera un código de activación desde su página de gestión (*Agendas → Código de activación*) y se lo pasa. Katia abre el panel, toca *Activar mi agenda*, escribe `katia`, el código y elige su PIN.
 
 ## Contra los intentos al azar
 
 - Supabase Auth limita los intentos de inicio de sesión por IP (*Authentication → Rate Limits*).
 - El panel pide una pausa en ese dispositivo después de 5 intentos fallidos (1 minuto, que se duplica hasta 15 minutos). Esta pausa ayuda, pero se puede saltar cambiando de navegador: la protección real es la de Supabase.
 - Un PIN de 6 números tiene un millón de combinaciones, y no se aceptan los fáciles de adivinar.
+- El código de activación sirve una sola vez, vence en 7 días y se anula después de 5 intentos equivocados. Solo se guarda su hash.
 
 ## Demo para mostrar
 

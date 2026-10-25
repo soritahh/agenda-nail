@@ -519,3 +519,6 @@ textarea { resize: vertical; min-height: 84px; }
 .acceso-olvide { text-align: center; margin: 0; }
 .check-linea { display: flex; align-items: center; gap: 8px; margin: 2px 0 12px; font-size: 0.95rem; color: var(--gris); }
 .check-linea input[type="checkbox"] { width: 20px; height: 20px; min-height: 0; padding: 0; margin: 0; flex: none; appearance: auto; -webkit-appearance: checkbox; border: 0; box-shadow: none; accent-color: var(--fucsia); }
+.codigo-activacion { margin: 14px 0 8px; padding: 14px; border-radius: 16px; background: var(--fucsia-suave); text-align: center; font-size: 1.9rem; font-weight: 700; letter-spacing: 0.18em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--plum); user-select: all; }
+.input-codigo { text-transform: uppercase; letter-spacing: 0.2em; text-align: center; font-size: 1.25rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.acceso-alterno { margin-top: 6px; }

@@ -4,7 +4,7 @@ import {
   fechaLarga, fechaCorta, fechaRelativa, capitalizar, duracionTexto, hora5, linkWhatsApp, toast, confirmar, abrirHoja,
   mensajeError, registrarSW, logoHTML, aplicarColor, COLOR_BASE, horariosLibres, normalizarTelefono,
   DEMO, bannerDemo, reiniciarDemo,
-} from './comun.js?v=p4';
+} from './comun.js?v=p5';
 import { BUCKET_LOGOS } from './config.js';
 
 const acceso = $('#acceso'), app = $('#app'), main = $('#contenido');
@@ -13,7 +13,8 @@ const ESTADOS = { pendiente: 'Por confirmar', aprobado: 'Confirmado', rechazado:
 
 // ---------------- Acceso (nombre de la agenda + PIN de 6 dígitos) ----------------
 // Cada agenda tiene un usuario de Supabase Auth con correo sintético <slug>@pin.agenda-nail.invalid y el PIN como
-// contraseña. Lo crea / cambia Agustin desde su página de gestión (Edge Function 'admin-pin'). Nunca se envían correos.
+// contraseña. La primera vez ella activa su agenda con el código de un solo uso que le da Agustin y elige su PIN
+// (Edge Function 'admin-pin'); después lo puede cambiar en Ajustes. Nunca se envían correos.
 const DOMINIO_PIN = 'pin.agenda-nail.invalid';
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$/;
 const CLAVE_ULTIMA = 'agenda-nail-pro-ultima-agenda';
@@ -39,6 +40,29 @@ function anotarFallo() {
   try { localStorage.setItem(CLAVE_INTENTOS, JSON.stringify(i)); } catch { /* sin almacenamiento */ }
   return i;
 }
+/** Mismo criterio que la Edge Function 'admin-pin' (que es la que manda). null = PIN válido. */
+function problemaPin(pin) {
+  if (!/^\d{6}$/.test(pin)) return 'El PIN tiene que tener exactamente 6 números.';
+  const d = [...pin].map(Number);
+  if (d.every((x) => x === d[0])) return 'Ese PIN es muy fácil de adivinar (todos los números iguales).';
+  const paso = d[1] - d[0];
+  if (Math.abs(paso) === 1 && d.every((x, i) => i === 0 || x - d[i - 1] === paso)) return 'Ese PIN es muy fácil de adivinar (números seguidos).';
+  if (pin.slice(0, 3) === pin.slice(3) || pin.slice(0, 2).repeat(3) === pin) return 'Ese PIN es muy fácil de adivinar (se repite).';
+  if (['112233', '123321', '102030', '159753', '147258', '258369', '789456', '456123', '131313', '010101'].includes(pin)) return 'Ese PIN es muy fácil de adivinar. Elige otro.';
+  return null;
+}
+/** Solo números, máximo 6, en cada campo de PIN. */
+function soloDigitos(...inputs) {
+  inputs.forEach((i) => i.addEventListener('input', () => { const v = i.value.replace(/\D/g, '').slice(0, 6); if (v !== i.value) i.value = v; }));
+}
+const campoPin = (id, label, auto = 'new-password') => `<div class="campo"><label for="${id}">${label}</label>
+  <input id="${id}" class="input-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" required autocomplete="${auto}" placeholder="••••••"></div>`;
+/** Lee el JSON de error de la Edge Function. */
+async function mensajeFuncion(error, porDefecto) {
+  try { const j = await error?.context?.json(); if (j?.mensaje) return j.mensaje; } catch { /* sin JSON */ }
+  return porDefecto;
+}
+
 function limpiarIntentos() { try { localStorage.removeItem(CLAVE_INTENTOS); } catch { /* nada */ } }
 
 function pantallaAcceso(html, { titulo = '¡Hola!', sub = 'Tu agenda de turnos online', pie = true } = {}) {
@@ -66,10 +90,12 @@ function formPin() {
       <button class="btn btn-primario btn-grande" type="submit" id="a-entrar">Entrar</button>
     </form>
     <div class="separador" aria-hidden="true">✦</div>
-    <p class="texto-suave acceso-olvide">¿Olvidaste tu PIN? Escríbele a Agustin y te da uno nuevo.</p>`,
+    <button type="button" class="btn btn-secundario btn-grande acceso-alterno" id="a-activar">Activar mi agenda (primera vez)</button>
+    <p class="texto-suave acceso-olvide">¿Olvidaste tu PIN? Pídele a Agustin un código nuevo y vuelve a activarla.</p>`,
   { titulo: '¡Hola de nuevo!' });
   const fSlug = $('#a-slug'), fPin = $('#a-pin'), bEntrar = $('#a-entrar'), e = $('#a-error');
   const err = (m) => { e.textContent = m; e.hidden = !m; };
+  $('#a-activar').onclick = () => formActivar(leerSlug(fSlug.value));
   (ultima ? fPin : fSlug).focus();
   let reloj = 0;
   const frenar = () => {
@@ -116,9 +142,96 @@ function formPin() {
   });
 }
 
+/** Primera vez (o después de que Agustin le dio un código nuevo): agenda + código + PIN elegido por ella. */
+function formActivar(slugInicial = '') {
+  pantallaAcceso(`
+    <h2 class="acceso-titulo">Activar mi agenda</h2>
+    <p class="acceso-sub">Escribe el código que te pasó Agustin y elige tu PIN de 6 números.</p>
+    <form id="f-activar" novalidate>
+      <div class="campo"><label for="v-slug">Tu agenda</label>
+        <input id="v-slug" maxlength="300" required autocapitalize="none" autocomplete="username" spellcheck="false" value="${esc(slugInicial)}" placeholder="ej.: sofi-nails"></div>
+      <div class="campo"><label for="v-codigo">Código de activación</label>
+        <input id="v-codigo" class="input-codigo" maxlength="12" required autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" placeholder="XXXX-XXXX"></div>
+      ${campoPin('v-pin1', 'Elige tu PIN (6 números)')}
+      ${campoPin('v-pin2', 'Repite tu PIN')}
+      <p class="ayuda">No uses fechas ni números fáciles como 123456. Con tu agenda y este PIN vas a entrar siempre.</p>
+      <p id="v-error" class="form-error-general" role="alert" hidden></p>
+      <button class="btn btn-primario btn-grande" type="submit" id="v-enviar">Activar y entrar</button>
+    </form>
+    <div class="separador" aria-hidden="true">✦</div>
+    <button type="button" class="btn-chico" id="v-volver">Ya tengo PIN: entrar</button>`,
+  { titulo: '¡Bienvenida!' });
+  const e = $('#v-error'), err = (m) => { e.textContent = m; e.hidden = !m; };
+  const fSlug = $('#v-slug'), fCod = $('#v-codigo'), p1 = $('#v-pin1'), p2 = $('#v-pin2'), b = $('#v-enviar');
+  soloDigitos(p1, p2);
+  [fSlug, fCod, p1, p2].forEach((i) => i.addEventListener('input', () => err('')));
+  fCod.addEventListener('input', () => {
+    const v = fCod.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    const f = v.length > 4 ? `${v.slice(0, 4)}-${v.slice(4)}` : v;
+    if (f !== fCod.value) fCod.value = f;
+  });
+  $('#v-volver').onclick = formPin;
+  (slugInicial ? fCod : fSlug).focus();
+  $('#f-activar').addEventListener('submit', async (ev) => {
+    ev.preventDefault(); err('');
+    const slug = leerSlug(fSlug.value), codigo = fCod.value.replace(/[^A-Z0-9]/gi, '').toUpperCase(), pin = p1.value;
+    if (!SLUG_RE.test(slug) || slug.includes('--')) return err('Escribe el nombre de tu agenda (minúsculas, números y guiones, como en tu link).');
+    if (codigo.length !== 8) return err('El código tiene 8 letras y números (por ejemplo ABCD-2345).');
+    const motivo = problemaPin(pin);
+    if (motivo) return err(motivo);
+    if (pin !== p2.value) return err('Los dos PIN no coinciden.');
+    b.disabled = true; b.textContent = 'Activando…';
+    try {
+      const { data, error } = await sb.functions.invoke('admin-pin', { body: { accion: 'activar', slug, codigo, pin } });
+      if (error || !data?.ok) return err(await mensajeFuncion(error, 'No se pudo activar. Intenta de nuevo.'));
+      const { error: e2 } = await sb.auth.signInWithPassword({ email: `${slug}@${DOMINIO_PIN}`, password: pin });
+      if (e2) { toast('Tu PIN quedó guardado. Entra con tu agenda y tu PIN.'); return formPin(); }
+      limpiarIntentos();
+      try { localStorage.setItem(CLAVE_ULTIMA, slug); } catch { /* nada */ }
+      history.replaceState(null, '', location.pathname);
+      toast('¡Listo! Tu PIN quedó guardado.');
+      await entrar();
+    } catch (x) { err(mensajeError(x)); } finally { b.disabled = false; b.textContent = 'Activar y entrar'; }
+  });
+}
+
+/** Ajustes → Cambiar PIN: PIN actual + nuevo (dos veces). */
+function cambiarPin() {
+  const { capa, cerrar } = abrirHoja('Cambiar mi PIN', `<form id="f-cpin" novalidate>
+    ${campoPin('c-actual', 'PIN actual', 'current-password')}
+    ${campoPin('c-pin1', 'PIN nuevo (6 números)')}
+    ${campoPin('c-pin2', 'Repite el PIN nuevo')}
+    <p class="texto-suave">Se cierra la sesión en tus otros teléfonos.</p>
+    <p id="c-error" class="form-error-general" role="alert" hidden></p>
+    <button class="btn btn-primario btn-grande" type="submit" id="c-guardar">Cambiar PIN</button></form>`);
+  const e = $('#c-error', capa), err = (m) => { e.textContent = m; e.hidden = !m; };
+  const actual = $('#c-actual', capa), p1 = $('#c-pin1', capa), p2 = $('#c-pin2', capa), b = $('#c-guardar', capa);
+  soloDigitos(actual, p1, p2);
+  [actual, p1, p2].forEach((i) => i.addEventListener('input', () => err('')));
+  actual.focus();
+  $('#f-cpin', capa).addEventListener('submit', async (ev) => {
+    ev.preventDefault(); err('');
+    if (!/^\d{6}$/.test(actual.value)) return err('Escribe tu PIN actual (6 números).');
+    const motivo = problemaPin(p1.value);
+    if (motivo) return err(motivo);
+    if (p1.value !== p2.value) return err('Los dos PIN nuevos no coinciden.');
+    if (p1.value === actual.value) return err('El PIN nuevo tiene que ser distinto del actual.');
+    b.disabled = true;
+    try {
+      const { data, error } = await sb.functions.invoke('admin-pin', { body: { accion: 'cambiar', pin_actual: actual.value, pin: p1.value } });
+      if (error || !data?.ok) return err(await mensajeFuncion(error, 'No se pudo cambiar el PIN. Intenta de nuevo.'));
+      // El cambio cierra todas las sesiones: volvemos a entrar con el PIN nuevo.
+      const { error: e2 } = await sb.auth.signInWithPassword({ email: `${P.pro.slug}@${DOMINIO_PIN}`, password: p1.value });
+      cerrar();
+      if (e2) { toast('PIN cambiado. Entra de nuevo con tu PIN nuevo.'); return salir(); }
+      toast('PIN cambiado.');
+    } catch (x) { err(mensajeError(x)); } finally { b.disabled = false; }
+  });
+}
+
 function pantallaSinAgenda() {
   pantallaAcceso(`<h2 class="acceso-titulo">Este acceso no tiene agenda</h2>
-    <p>Pídele a Agustin un PIN nuevo para tu agenda.</p>
+    <p>Pídele a Agustin un código de activación para tu agenda.</p>
     <button class="btn btn-primario btn-grande" id="a-salir">Volver</button>`, { pie: false });
   $('#a-salir').onclick = salir;
 }
@@ -169,6 +282,8 @@ async function salir() {
 }
 
 async function iniciarAcceso() {
+  const activar = new URLSearchParams(location.search).get('activar');
+  if (activar !== null && !DEMO) return formActivar(leerSlug(activar));
   const { data: { session } } = await sb.auth.getSession();
   if (session) return entrar();
   formPin();
@@ -552,7 +667,8 @@ async function vistaAjustes(param) {
     <section class="tarjeta">
       <div class="tarjeta-titulo"><h2>Tu cuenta</h2></div>
       ${DEMO ? `<p class="texto-suave">Estás viendo la demo: los cambios se guardan solo en este dispositivo. En la demo no hace falta PIN; tu agenda real se abre con su nombre y un PIN de 6 números.</p>
-      <button type="button" class="btn btn-texto-peligro" id="cerrar-sesion">Reiniciar demo</button>` : `<p class="texto-suave">Entras con tu agenda <b>${esc(P.pro?.slug || '')}</b> y tu PIN. Para cambiar el PIN, pídeselo a Agustin.</p>
+      <button type="button" class="btn btn-texto-peligro" id="cerrar-sesion">Reiniciar demo</button>` : `<p class="texto-suave">Entras con tu agenda <b>${esc(P.pro?.slug || '')}</b> y tu PIN.</p>
+      <button type="button" class="btn btn-secundario" id="cambiar-pin">Cambiar mi PIN</button>
       <button type="button" class="btn btn-texto-peligro" id="cerrar-sesion">Cerrar sesión</button>`}
     </section>
     <p class="pie">Agenda Nail · ${esc(c.nombre)}</p>`;
@@ -561,7 +677,8 @@ async function vistaAjustes(param) {
   $('#p-compartir').onclick = () => compartirLink(link);
   $('#nuevo-srv').onclick = () => editarServicio(null);
   if (DEMO) $('#cerrar-sesion').onclick = async () => { if (await confirmar({ titulo: '¿Reiniciar la demo?', texto: 'Se borran los turnos y cambios de prueba de este dispositivo.', si: 'Reiniciar', peligro: true })) { reiniciarDemo(); location.reload(); } };
-  else $('#cerrar-sesion').onclick = async () => { if (await confirmar({ titulo: '¿Cerrar sesión?', texto: 'Para volver a entrar vas a necesitar el nombre de tu agenda y tu PIN.', si: 'Cerrar sesión' })) salir(); };
+  if (!DEMO) $('#cambiar-pin').onclick = cambiarPin;
+  if (!DEMO) $('#cerrar-sesion').onclick = async () => { if (await confirmar({ titulo: '¿Cerrar sesión?', texto: 'Para volver a entrar vas a necesitar el nombre de tu agenda y tu PIN.', si: 'Cerrar sesión' })) salir(); };
 
   // Color (vista previa en vivo; se guarda con "Guardar ajustes")
   let color = c.color || null;
