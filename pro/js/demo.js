@@ -48,6 +48,18 @@ function guardar(d) { localStorage.setItem(CLAVE, JSON.stringify(d)); }
 export function reiniciarDemo() { localStorage.removeItem(CLAVE); }
 export function logoDemo(path) { return path === 'demo:logo' ? LOGO_DEMO : (leer().logos || {})[path] || ''; }
 export function fotoDemo(path) { return (leer().fotos || {})[path] || ''; }
+/** Fotos de referencia de la clienta en la demo: quedan sólo en este navegador (data URLs). */
+export function guardarReferenciasDemo(turnoId, dataUrls) {
+  const d = leer(), t = d.turnos.find((x) => x.id === turnoId);
+  if (!t) return false;
+  const rutas = dataUrls.slice(0, 3).map((_, i) => `demo-ref/${turnoId}/${i + 1}.jpg`);
+  try {
+    d.refs = { ...(d.refs || {}) };
+    rutas.forEach((r, i) => { d.refs[r] = dataUrls[i]; });
+    t.ref_fotos = rutas; guardar(d); return true;
+  } catch { return false; } // sin espacio en el navegador
+}
+export function fotoRefDemo(path) { return (leer().refs || {})[path] || ''; }
 
 const TABLAS = { profesionales: 'pro', pro_horarios: 'horarios', pro_servicios: 'servicios', pro_turnos: 'turnos' };
 const filas = (d, t) => (t === 'profesionales' ? [d.pro] : d[TABLAS[t]]);
@@ -136,7 +148,7 @@ const RPC = {
       .sort((a, b) => (a.fecha + a.hora_inicio < b.fecha + b.hora_inicio ? -1 : 1))
       .map(({ fecha, hora_inicio, hora_fin }) => ({ fecha, hora_inicio, hora_fin }));
   },
-  pro_solicitar_turno({ p_servicio_id, p_fecha, p_hora, p_nombre, p_telefono, p_notas }) {
+  pro_solicitar_turno({ p_servicio_id, p_fecha, p_hora, p_nombre, p_telefono, p_notas, p_fotos = 0 }) {
     const d = leer(), nombre = limpiar(p_nombre), tel = String(p_telefono || '').replace(/\D/g, ''), notas = limpiar(p_notas) || null;
     if (nombre.length < 2 || nombre.length > 80) throw new Error('DATOS_INVALIDOS: nombre');
     if (!/^\d{8,15}$/.test(tel)) throw new Error('DATOS_INVALIDOS: telefono');
@@ -152,7 +164,9 @@ const RPC = {
     } else if (aMin(p_hora) < aMin(hor.inicio) || (aMin(p_hora) - aMin(hor.inicio)) % d.pro.intervalo_min
       || aMin(hor.fin) - aMin(p_hora) < srv.duracion_min) throw new Error('FUERA_DE_HORARIO');
     if (d.turnos.filter((t) => t.clienta_telefono === tel && t.estado === 'pendiente' && t.fecha >= h).length >= 3) throw new Error('DEMASIADOS_PEDIDOS');
-    return insertarTurno(d, srv, p_fecha, p_hora, nombre, tel, notas, 'pendiente');
+    if (!(p_fotos >= 0 && p_fotos <= 3)) throw new Error('DATOS_INVALIDOS: fotos');
+    const r = insertarTurno(d, srv, p_fecha, p_hora, nombre, tel, notas, 'pendiente');
+    return p_fotos ? { ...r, ref_token: 'demo' } : r;
   },
   pro_turno_manual({ p_servicio_id, p_fecha, p_hora, p_nombre, p_telefono, p_notas, p_estado = 'aprobado' }) {
     const d = leer(), nombre = limpiar(p_nombre), tel = String(p_telefono || '').replace(/\D/g, '') || null, notas = limpiar(p_notas) || null;

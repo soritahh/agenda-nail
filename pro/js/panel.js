@@ -3,9 +3,10 @@ import {
   sb, $, $$, esc, pesos, precioTexto, icono, iconoServicio, parsePesos, pesosInput, hoyAR, sumarDias, parseFecha, fechaISO, diaSemana, DIAS, MESES,
   fechaLarga, fechaCorta, fechaRelativa, capitalizar, duracionTexto, hora5, linkWhatsApp, toast, confirmar, abrirHoja,
   mensajeError, registrarSW, logoHTML, aplicarColor, COLOR_BASE, horariosLibres, normalizarTelefono,
-  DEMO, bannerDemo, reiniciarDemo, senaDe, urlFoto, abrirFotos, comprimirFoto,
-} from './comun.js?v=p6';
-import { BUCKET_LOGOS, BUCKET_SERVICIOS } from './config.js?v=p6';
+  DEMO, bannerDemo, reiniciarDemo, senaDe, urlFoto, abrirFotos, comprimirFoto, fotoRefDemo,
+} from './comun.js?v=p7';
+import { BUCKET_LOGOS, BUCKET_SERVICIOS, BUCKET_REFERENCIAS } from './config.js?v=p7';
+import { estadoAvisos, activarAvisos, desactivarAvisos, probarAvisos, esIOS } from './avisos.js?v=p7';
 
 const acceso = $('#acceso'), app = $('#app'), main = $('#contenido');
 const P = { pro: null, user: null, mesAgenda: hoyAR().slice(0, 7), diaAgenda: hoyAR() };
@@ -275,6 +276,8 @@ async function entrar() {
 }
 
 async function salir() {
+  // Este dispositivo deja de recibir avisos de la agenda al cerrar sesión.
+  try { await desactivarAvisos(P.pro?.id); } catch { /* sin conexión: igual se cierra la sesión */ }
   await sb.auth.signOut();
   P.pro = null; P.user = null;
   history.replaceState(null, '', location.pathname + (DEMO ? location.search : ''));
@@ -334,6 +337,8 @@ function tarjetaTurno(t, { acciones, sinFecha = false }) {
     ${t.sena ? `<p class="pedido-sena">Seña: <b>${pesos(t.sena)}</b></p>` : ''}
     ${t.clienta_telefono ? `<a class="enlace-tel" href="tel:${esc(t.clienta_telefono)}">${esc(t.clienta_telefono)}</a>` : ''}
     ${t.notas ? `<p class="pedido-notas">“${esc(t.notas)}”</p>` : ''}
+    ${t.ref_fotos?.length ? `<div class="pedido-refs"><span class="pedido-refs-txt">${icono('camara')}${t.ref_fotos.length === 1 ? 'Foto del diseño' : `${t.ref_fotos.length} fotos del diseño`}</span>
+      <div class="pedido-refs-minis">${t.ref_fotos.map((r, i) => `<button type="button" class="ref-mini-panel" data-ref="${i}" aria-label="Ver foto ${i + 1} del diseño"><img alt="" data-ruta="${esc(r)}"></button>`).join('')}</div></div>` : ''}
     ${pasado && t.estado === 'pendiente' ? '<p class="ayuda ayuda-error">Esta fecha ya pasó.</p>' : ''}
     <div class="pedido-acciones">${acciones}</div>
   </article>`;
@@ -392,7 +397,15 @@ function accionesTurno(t) {
 
 /** Maneja Confirmar / Rechazar / Cancelar dentro de una lista de tarjetas. */
 function enlazarAcciones(cont, turnos, recargar) {
+  cargarRefs(cont);
   cont.addEventListener('click', async (e) => {
+    const r = e.target.closest('[data-ref]');
+    if (r) {
+      const t = turnos.find((x) => x.id === r.closest('.pedido').dataset.id);
+      const urls = $$('img', r.parentElement).map((im) => im.src).filter(Boolean);
+      if (urls.length) abrirFotos(urls, `Diseño · ${t?.clienta_nombre || ''}`, Math.min(+r.dataset.ref, urls.length - 1));
+      return;
+    }
     const b = e.target.closest('[data-acc]'); if (!b) return;
     const t = turnos.find((x) => x.id === b.closest('.pedido').dataset.id); if (!t) return;
     const quien = `${t.clienta_nombre} · ${t.servicio_nombre}, ${fechaLarga(t.fecha)} a las ${hora5(t.hora_inicio)} h.`;
@@ -404,6 +417,89 @@ function enlazarAcciones(cont, turnos, recargar) {
     if (!conf || !await confirmar(conf)) return;
     b.disabled = true;
     if (await cambiarEstado(t, conf.estado)) { toast(conf.ok); actualizarBadge(); recargar(); } else b.disabled = false;
+  });
+}
+
+/** Miniaturas de las fotos de referencia: bucket privado, URLs firmadas por 1 hora (en la demo, del navegador). */
+async function cargarRefs(cont) {
+  const imgs = $$('img[data-ruta]', cont);
+  if (!imgs.length) return;
+  let urls = {};
+  if (DEMO) imgs.forEach((im) => { urls[im.dataset.ruta] = fotoRefDemo(im.dataset.ruta); });
+  else {
+    const { data, error } = await sb.storage.from(BUCKET_REFERENCIAS).createSignedUrls([...new Set(imgs.map((im) => im.dataset.ruta))], 3600);
+    if (error) return;
+    data.forEach((d) => { if (d.signedUrl) urls[d.path] = d.signedUrl; });
+  }
+  imgs.forEach((im) => {
+    if (urls[im.dataset.ruta]) im.src = urls[im.dataset.ruta];
+    else im.closest('.ref-mini-panel')?.classList.add('ref-sin');
+  });
+}
+
+// ---------------- Notificaciones ----------------
+const CLAVE_AVISO_OCULTO = 'agenda-nail-pro-aviso-notif-oculto';
+const PASOS_IOS = 'En iPhone: toca <b>Compartir</b> → <b>Agregar a inicio</b>, abre la agenda desde el ícono y vuelve a tocar <b>Activar</b>.';
+const TEXTO_ESTADO = {
+  activadas: ['ok', 'Activadas'], apagadas: ['apagado', 'Desactivadas'], bloqueadas: ['error', 'Bloqueadas'],
+  'ios-instalar': ['apagado', 'Falta instalar'], 'ios-viejo': ['error', 'No compatible'], 'no-compatible': ['error', 'No compatible'], demo: ['apagado', 'Demo'],
+};
+
+/** Aviso suave en la Agenda si este dispositivo todavía no recibe notificaciones. */
+async function bannerAvisos(sigue) {
+  if (DEMO) return;
+  try { if (localStorage.getItem(CLAVE_AVISO_OCULTO)) return; } catch { /* nada */ }
+  const est = await estadoAvisos(P.pro.id);
+  if (!sigue() || !['apagadas', 'ios-instalar'].includes(est)) return;
+  const caja = $('#aviso-notif'); if (!caja) return;
+  caja.innerHTML = `<div class="aviso-notif" role="note">${icono('campana')}
+    <span>${est === 'ios-instalar' ? 'Para recibir un aviso con cada pedido nuevo, agrega tu agenda a la pantalla de inicio.' : 'Activa las notificaciones y entérate al instante de cada pedido nuevo.'}</span>
+    <a class="btn-chico" href="#/ajustes/notificaciones">${est === 'ios-instalar' ? 'Ver cómo' : 'Activar'}</a>
+    <button type="button" class="aviso-notif-cerrar" aria-label="No mostrar más"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button></div>`;
+  $('.aviso-notif-cerrar', caja).onclick = () => { try { localStorage.setItem(CLAVE_AVISO_OCULTO, '1'); } catch { /* nada */ } caja.innerHTML = ''; };
+}
+
+async function pintarNotif(estado) {
+  const cont = $('#notif-cont'); if (!cont) return;
+  const est = estado || await estadoAvisos(P.pro.id);
+  if (!$('#notif-cont')) return;
+  const [cls, txt] = TEXTO_ESTADO[est] || TEXTO_ESTADO.apagadas;
+  const botonActivar = (dis = false) => `<button type="button" class="btn btn-primario" id="notif-activar" ${dis ? 'disabled' : ''}>${icono('campana')}Activar notificaciones</button>`;
+  const cuerpo = {
+    demo: `${botonActivar(true)}<p class="ayuda">En la demo no hay notificaciones.</p>`,
+    'ios-instalar': `<p class="pasos-ios">${PASOS_IOS}</p>${botonActivar(true)}<p class="ayuda">Necesitas iOS 16.4 o más nuevo.</p>`,
+    'ios-viejo': '<p class="ayuda">Tu iPhone necesita iOS 16.4 o más nuevo para recibir notificaciones. Actualízalo en Ajustes → General → Actualización de software.</p>',
+    'no-compatible': `<p class="ayuda">Este navegador no permite notificaciones. Usa Chrome en Android${esIOS() ? '' : ' o en la computadora'}; en iPhone, agrega la agenda a tu pantalla de inicio (iOS 16.4 o más).</p>`,
+    bloqueadas: `<p class="ayuda">Las bloqueaste para esta página. Para volver a permitirlas: toca el candado o los tres puntos junto a la dirección → <b>Permisos</b> / <b>Configuración del sitio</b> → <b>Notificaciones</b> → <b>Permitir</b>. Después vuelve a tocar Activar.</p>${botonActivar()}`,
+    apagadas: `${botonActivar()}<p class="ayuda">Tu teléfono te va a preguntar si permites notificaciones: toca <b>Permitir</b>.</p>`,
+    activadas: `<p class="ayuda">Este dispositivo recibe un aviso con cada pedido nuevo.</p>
+      <div class="acciones-fila"><button type="button" class="btn btn-secundario btn-compacto" id="notif-probar">Probar notificación</button>
+      <button type="button" class="btn btn-texto-peligro btn-compacto" id="notif-desactivar">Desactivar</button></div>`,
+  }[est];
+  cont.innerHTML = `<p class="estado-notif"><span class="chip-notif chip-notif-${cls}">${esc(txt)}</span></p>${cuerpo}`;
+  $('#notif-activar', cont)?.addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = 'Activando…';
+    try {
+      const nuevo = await activarAvisos(P.pro.id);
+      if (nuevo === 'activadas') { toast('¡Listo! Te vamos a avisar cada pedido nuevo.'); try { localStorage.removeItem(CLAVE_AVISO_OCULTO); } catch { /* nada */ } }
+      else if (nuevo === 'bloqueadas') toast('Las notificaciones quedaron bloqueadas. Mira cómo permitirlas.', 'error');
+      pintarNotif(nuevo);
+    } catch (x) {
+      toast(/denied|permission/i.test(String(x?.message)) ? 'No se dio permiso para notificaciones.' : 'No se pudieron activar. Intenta de nuevo.', 'error');
+      pintarNotif();
+    }
+  });
+  $('#notif-probar', cont)?.addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    try {
+      const r = await probarAvisos();
+      toast(r.enviadas ? `Prueba enviada${r.enviadas > 1 ? ` a ${r.enviadas} dispositivos` : ''}. Debería llegarte en unos segundos.` : 'No se pudo entregar la prueba. Desactiva y vuelve a activar.', r.enviadas ? undefined : 'error');
+    } catch (x) { toast(x.message || 'No se pudo enviar la prueba.', 'error'); }
+    setTimeout(() => { b.disabled = false; }, 4000);
+  });
+  $('#notif-desactivar', cont)?.addEventListener('click', async () => {
+    try { await desactivarAvisos(P.pro.id); toast('Notificaciones desactivadas en este dispositivo.'); } catch (x) { toast(mensajeError(x), 'error'); }
+    pintarNotif();
   });
 }
 
@@ -423,6 +519,7 @@ async function vistaAgenda(param) {
     </div>
     <div class="tira-agenda" id="tira"><span class="texto-suave">Cargando…</span></div>
     <div id="aviso-pend"></div>
+    <div id="aviso-notif"></div>
     <div class="contadores" id="contadores"></div>
     <div id="dia" class="lista-pedidos"><div class="cargando"><span class="spinner"></span> Cargando…</div></div>
     <a class="btn-agregar-dia" href="#/nuevo/${sel}">${icono('mas')}Agregar turno este día</a>`;
@@ -432,6 +529,7 @@ async function vistaAgenda(param) {
   $('#dia-sig').onclick = () => ir(sumarDias(sel, 1));
   $('#ir-hoy')?.addEventListener('click', () => ir(hoy));
   const sigue = vigente();
+  bannerAvisos(sigue);
   let hs, data, pend;
   try {
     [hs, { data }, pend] = await Promise.all([
@@ -732,6 +830,11 @@ async function vistaAjustes(param) {
       <ul class="lista-servicios" id="lista-srv"><li class="cargando"><span class="spinner"></span> Cargando…</li></ul>
       <button type="button" class="btn-agregar" id="nuevo-srv">${icono('mas')}Agregar servicio</button>
     </section>
+    <section class="tarjeta" id="sec-notif">
+      <div class="tarjeta-titulo"><h2>Notificaciones</h2></div>
+      <p class="texto-suave">Un aviso en este teléfono cada vez que una clienta pide un turno.</p>
+      <div id="notif-cont"><div class="cargando"><span class="spinner"></span> Revisando…</div></div>
+    </section>
     <section class="tarjeta">
       <div class="tarjeta-titulo"><h2>Tu cuenta</h2></div>
       ${DEMO ? `<p class="texto-suave">Estás viendo la demo: los cambios se guardan solo en este dispositivo. En la demo no hace falta PIN; tu agenda real se abre con su nombre y un PIN de 6 números.</p>
@@ -741,6 +844,8 @@ async function vistaAjustes(param) {
     </section>
     <p class="pie">Agenda Nail · ${esc(c.nombre)}</p>`;
   enlazarCabecera();
+  pintarNotif();
+  if (param === 'notificaciones') requestAnimationFrame(() => $('#sec-notif')?.scrollIntoView({ block: 'start' }));
   $('#p-copiar').onclick = () => copiarLink(link, $('#p-link'));
   $('#p-compartir').onclick = () => compartirLink(link);
   $('#nuevo-srv').onclick = () => editarServicio(null);
@@ -922,6 +1027,12 @@ function router() {
 }
 window.addEventListener('hashchange', router);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !app.hidden) actualizarBadge(); });
+// Mensajes del service worker: llegó un pedido (actualizar el contador) o abrir Próximos al tocar la notificación.
+navigator.serviceWorker?.addEventListener('message', (e) => {
+  const m = e.data || {};
+  if (m.tipo === 'pedido' && !app.hidden && P.pro) { actualizarBadge(); if (/^#\/(agenda|proximos)/.test(location.hash) || !location.hash) router(); }
+  if (m.tipo === 'ir' && typeof m.url === 'string' && new URL(m.url, location.href).origin === location.origin) location.href = m.url;
+});
 
 registrarSW();
 iniciarAcceso();

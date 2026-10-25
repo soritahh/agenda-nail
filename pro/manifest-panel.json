@@ -1,9 +1,10 @@
 {
+  "id": "./panel.html",
   "name": "Agenda Nail · Mi panel",
   "short_name": "Agenda Nail",
   "description": "Tu agenda de turnos: pedidos, agenda, servicios, horarios y perfil.",
   "lang": "es",
-  "start_url": "./panel.html#/pedidos",
+  "start_url": "./panel.html#/agenda",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

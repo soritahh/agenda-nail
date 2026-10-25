@@ -586,3 +586,54 @@ textarea { resize: vertical; min-height: 84px; }
 .hf-agregar input { width: auto; flex: 0 0 auto; }
 .btn-texto { background: transparent; color: var(--fucsia-2); min-height: 40px; box-shadow: none; }
 .caja-sena b:not(.alias), .chip-sena, .pedido-sena b { white-space: nowrap; }
+
+/* ---------- Fotos de referencia (reserva) ---------- */
+.refs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.ref-mini { position: relative; width: 78px; height: 78px; }
+.ref-ver { display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: var(--radio-chico); overflow: hidden; cursor: zoom-in; background: var(--fucsia-suave); }
+.ref-ver img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ref-quitar {
+  position: absolute; top: -7px; right: -7px; width: 28px; height: 28px; border-radius: 50%; border: 2px solid #fff;
+  background: var(--texto); color: #fff; display: grid; place-items: center; padding: 0; cursor: pointer; box-shadow: var(--sombra-suave);
+}
+.ref-quitar svg { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.4; fill: none; stroke-linecap: round; }
+.ref-agregar {
+  width: 78px; height: 78px; border: 1.5px dashed #eaa3c3; border-radius: var(--radio-chico); background: #fff7fa; color: var(--fucsia-2);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font: 500 0.78rem var(--sans); cursor: pointer;
+}
+.ref-agregar svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.refs-estado { flex-basis: 100%; }
+.estado-refs { margin: 14px 0 0; padding: 12px 14px; border-radius: var(--radio-chico); background: #fff7fa; color: var(--gris); font-size: 0.92rem; text-align: center; }
+.estado-refs svg { width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+.estado-refs.refs-ok { background: #eaf7ef; color: #2c7a4b; }
+.estado-refs.refs-falla { background: #fff4e5; color: #8a5a12; }
+
+/* ---------- Fotos de referencia (panel) ---------- */
+.pedido-refs { margin: 8px 0 2px; }
+.pedido-refs-txt { display: inline-flex; align-items: center; gap: 6px; font-size: 0.84rem; color: var(--gris); }
+.pedido-refs-txt svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+.pedido-refs-minis { display: flex; gap: 8px; margin-top: 6px; }
+.ref-mini-panel { width: 64px; height: 64px; padding: 0; border: 0; border-radius: 12px; overflow: hidden; cursor: zoom-in; background: var(--fucsia-suave); }
+.ref-mini-panel img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ref-mini-panel img:not([src]) { visibility: hidden; }
+.ref-mini-panel.ref-sin { cursor: default; opacity: 0.5; }
+
+/* ---------- Notificaciones (panel) ---------- */
+.aviso-notif {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 12px 12px 12px 14px; border-radius: var(--radio-chico);
+  background: #fff7fa; border: 1px solid var(--borde); font-size: 0.9rem; color: var(--texto);
+}
+.aviso-notif > svg { width: 22px; height: 22px; flex: none; stroke: var(--fucsia); fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.aviso-notif > span { flex: 1; }
+.aviso-notif .btn-chico { flex: none; text-decoration: none; }
+.aviso-notif-cerrar { flex: none; width: 32px; height: 32px; border: 0; background: none; color: var(--gris); padding: 4px; cursor: pointer; }
+.aviso-notif-cerrar svg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; }
+.estado-notif { margin: 6px 0 12px; }
+.chip-notif { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 500; }
+.chip-notif-ok { background: #e3f5ea; color: #2c7a4b; }
+.chip-notif-apagado { background: #f3edf0; color: var(--gris); }
+.chip-notif-error { background: #fde9ec; color: var(--error); }
+#sec-notif .btn svg { width: 18px; height: 18px; margin-right: 6px; vertical-align: -3px; stroke: currentColor; fill: none; stroke-width: 1.7; }
+#sec-notif .ayuda { margin-top: 10px; }
+#sec-notif .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+.pasos-ios { margin: 0 0 12px; padding: 12px 14px; border-radius: var(--radio-chico); background: #fff7fa; font-size: 0.92rem; }

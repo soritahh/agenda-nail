@@ -1,7 +1,7 @@
 // Service worker de Agenda Nail PRO. Alcance: sólo /agenda-nail/pro/ (está dentro de /pro/).
 // Caché propio con prefijo 'agenda-nail-pro-': nunca borra los cachés de la app de la raíz.
 const PREFIJO = 'agenda-nail-pro-';
-const VERSION = PREFIJO + 'v5';
+const VERSION = PREFIJO + 'v6';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -29,4 +29,35 @@ self.addEventListener('fetch', (ev) => {
       })
       .catch(() => caches.match(req).then((r) => r || new Response('Sin conexión', { status: 503 })))
   );
+});
+
+// ---------- Avisos push a la dueña (pedido nuevo) ----------
+self.addEventListener('push', (ev) => {
+  let d = {};
+  try { d = ev.data ? ev.data.json() : {}; } catch { d = { body: ev.data ? ev.data.text() : '' }; }
+  const icono = new URL('icons/icono-pro-192.png', self.registration.scope).href;
+  self.clients.matchAll({ type: 'window' }).then((cs) => cs.forEach((c) => c.postMessage({ tipo: 'pedido', title: d.title, body: d.body, tag: d.tag })));
+  ev.waitUntil(self.registration.showNotification(d.title || 'Nuevo turno 💅', {
+    body: d.body || 'Tienes un pedido nuevo para confirmar.',
+    icon: d.icon || icono,
+    badge: icono,
+    tag: d.tag || 'pedido',
+    renotify: true,
+    data: { url: new URL(d.url || 'panel.html#/proximos/pendientes', self.registration.scope).href },
+  }));
+});
+
+self.addEventListener('notificationclick', (ev) => {
+  ev.notification.close();
+  const destino = (ev.notification.data && ev.notification.data.url) || new URL('panel.html#/proximos/pendientes', self.registration.scope).href;
+  ev.waitUntil((async () => {
+    const ventanas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const panel = ventanas.find((c) => new URL(c.url).pathname.endsWith('/panel.html'));
+    if (panel) {
+      await panel.focus();
+      try { await panel.navigate(destino); } catch { panel.postMessage({ tipo: 'ir', url: destino }); }
+      return;
+    }
+    await self.clients.openWindow(destino);
+  })());
 });

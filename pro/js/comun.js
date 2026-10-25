@@ -1,9 +1,9 @@
 // Utilidades compartidas por la página de reservas y el panel.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm';
-import { SUPABASE_URL, SUPABASE_KEY, ZONA, BUCKET_LOGOS, BUCKET_SERVICIOS } from './config.js?v=p6';
-import { DEMO, DEMO_AVISO, crearClienteDemo, logoDemo, fotoDemo, reiniciarDemo } from './demo.js?v=p6';
+import { SUPABASE_URL, SUPABASE_KEY, ZONA, BUCKET_LOGOS, BUCKET_SERVICIOS } from './config.js?v=p7';
+import { DEMO, DEMO_AVISO, crearClienteDemo, logoDemo, fotoDemo, reiniciarDemo, guardarReferenciasDemo, fotoRefDemo } from './demo.js?v=p7';
 
-export { DEMO, DEMO_AVISO, reiniciarDemo };
+export { DEMO, DEMO_AVISO, reiniciarDemo, guardarReferenciasDemo, fotoRefDemo };
 // En modo demo (r/?m=demo, panel.html?demo=1) todo vive en este dispositivo: no se toca la base real.
 export const sb = DEMO ? crearClienteDemo() : createClient(SUPABASE_URL, SUPABASE_KEY, {
   // storageKey propio: la sesión de la versión PRO no se mezcla con la del panel de la raíz.
@@ -243,22 +243,31 @@ export function abrirFotos(urls, titulo = '', inicio = 0) {
   capa.querySelector('.visor-cerrar').focus();
 }
 
-/** Achica una foto a 800 px de ancho (máx. 1600 de alto) y la comprime a WEBP (o JPG) de menos de ~200 KB. */
-export async function comprimirFoto(file) {
-  if (!/^image\//.test(file.type)) throw new Error('FOTO_INVALIDA');
+/** Achica una foto (por defecto a 800 px de ancho, máx. 1600 de alto) y la comprime a WEBP (o JPG) de menos de ~200 KB.
+ *  Fotos de referencia de la clienta: { lado: 1000, kb: 300, formato: 'image/jpeg' }. */
+export async function comprimirFoto(file, { ancho = 800, alto = 1600, lado = 0, kb = 200, formato = 'image/webp' } = {}) {
+  if (!/^image\//.test(file.type) && file.type !== '') throw new Error('FOTO_INVALIDA');
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => null);
   const fuente = bmp || await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('FOTO_INVALIDA')); im.src = URL.createObjectURL(file); });
   const w0 = fuente.width, h0 = fuente.height;
-  const k = Math.min(1, 800 / w0, 1600 / h0);
+  if (!w0 || !h0) throw new Error('FOTO_INVALIDA');
+  const k = lado ? Math.min(1, lado / Math.max(w0, h0)) : Math.min(1, ancho / w0, alto / h0);
   const cv = document.createElement('canvas');
   cv.width = Math.round(w0 * k); cv.height = Math.round(h0 * k);
-  cv.getContext('2d').drawImage(fuente, 0, 0, cv.width, cv.height);
-  const aBlob = (tipo, q) => new Promise((res) => cv.toBlob(res, tipo, q));
-  let tipo = 'image/webp';
+  const ctx = cv.getContext('2d');
+  if (formato === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); } // PNG transparente -> fondo blanco
+  ctx.drawImage(fuente, 0, 0, cv.width, cv.height);
+  const aBlob = (t, q) => new Promise((res) => cv.toBlob(res, t, q));
+  let tipo = formato;
   let blob = await aBlob(tipo, 0.82);
-  if (!blob || blob.type !== 'image/webp') { tipo = 'image/jpeg'; blob = await aBlob(tipo, 0.82); }
-  for (const q of [0.74, 0.66, 0.58, 0.5]) { if (blob.size <= 200 * 1024) break; blob = await aBlob(tipo, q); }
+  if (!blob || blob.type !== tipo) { tipo = 'image/jpeg'; blob = await aBlob(tipo, 0.82); }
+  for (const q of [0.74, 0.66, 0.58, 0.5, 0.42]) { if (blob.size <= kb * 1024) break; blob = await aBlob(tipo, q); }
   if (!blob) throw new Error('FOTO_INVALIDA');
+  if (blob.size > kb * 1024) { // último recurso: achicar más
+    const c2 = document.createElement('canvas'); c2.width = Math.round(cv.width * 0.7); c2.height = Math.round(cv.height * 0.7);
+    const x2 = c2.getContext('2d'); x2.fillStyle = '#fff'; x2.fillRect(0, 0, c2.width, c2.height); x2.drawImage(cv, 0, 0, c2.width, c2.height);
+    blob = await new Promise((res) => c2.toBlob(res, tipo, 0.6));
+  }
   return { blob, tipo, ext: tipo === 'image/webp' ? 'webp' : 'jpg' };
 }
 
@@ -306,6 +315,8 @@ const I = {
   lapiz: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
   mas: '<path d="M12 5v14M5 12h14"/>',
   enlace: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/>',
+  camara: '<path d="M4 8h3l1.5-2.5h7L17 8h3v11H4z"/><circle cx="12" cy="13.3" r="3.4"/>',
+  campana: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
   chispa: '<path d="M12 2c.7 5.3 4.7 9.3 10 10-5.3.7-9.3 4.7-10 10-.7-5.3-4.7-9.3-10-10 5.3-.7 9.3-4.7 10-10z"/>',
 };
 export function icono(nombre, cls = '') {

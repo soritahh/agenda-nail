@@ -2,10 +2,12 @@
 import {
   sb, $, $$, esc, precioTexto, icono, iconoServicio, hoyAR, sumarDias, diaSemana, DIAS_CORTOS, fechaLarga, capitalizar, fechaRelativa,
   duracionTexto, horariosLibres, aMin, normalizarTelefono, linkWhatsApp, toast, mensajeError, registrarSW, hora5,
-  logoHTML, aplicarColor, DEMO, bannerDemo, pesos, senaDe, urlFoto, abrirFotos,
-} from './comun.js?v=p6';
+  logoHTML, aplicarColor, DEMO, bannerDemo, pesos, senaDe, urlFoto, abrirFotos, comprimirFoto, guardarReferenciasDemo,
+} from './comun.js?v=p7';
+import { FUNCIONES_URL, SUPABASE_KEY } from './config.js?v=p7';
 
-const S = { config: null, horarios: [], servicios: [], extras: [], ocupados: [], listo: false, servicio: null, fecha: null, hora: null, enviando: false };
+const MAX_REFS = 3;
+const S = { refs: [], config: null, horarios: [], servicios: [], extras: [], ocupados: [], listo: false, servicio: null, fecha: null, hora: null, enviando: false };
 const app = $('#app'), barra = $('#barra'), btn = $('#btn-reservar');
 const DIAS_VISTA = 21;
 const SLUG = (new URLSearchParams(location.search).get('m') || (location.hash.match(/^#\/?([a-z0-9-]+)/) || [])[1] || '').toLowerCase().trim();
@@ -106,6 +108,12 @@ function dibujarFormulario() {
       <p class="ayuda" id="tel-ayuda">Con código de área, sin 0 ni 15.</p></div>
     <div class="campo"><label for="notas">Nota (opcional)</label>
       <textarea id="notas" maxlength="300" rows="2" placeholder="Ej.: quiero francesita o diseño en dos uñas"></textarea></div>
+    <div class="campo campo-refs"><span class="label" id="refs-titulo">Agregar fotos del diseño (opcional)</span>
+      <p class="ayuda">Hasta ${MAX_REFS} fotos de referencia. Solo las ve ella.</p>
+      <div class="refs" id="refs" aria-labelledby="refs-titulo"></div>
+      <input id="refs-galeria" type="file" accept="image/*" multiple hidden>
+      <input id="refs-camara" type="file" accept="image/*" capture="environment" hidden>
+    </div>
   </div>
   <p class="pie">${senaPct() ? `Para guardar el turno se pide una seña del ${senaPct()}%. ` : ''}Tu turno queda pendiente hasta que te lo confirme. ✦</p>`;
 
@@ -131,9 +139,69 @@ function dibujarFormulario() {
   }));
   $('#nombre').addEventListener('input', actualizarBarra);
   $('#telefono').addEventListener('input', actualizarBarra);
+  $('#refs-galeria').addEventListener('change', agregarRefs);
+  $('#refs-camara').addEventListener('change', agregarRefs);
+  dibujarRefs();
   barra.hidden = false;
   btn.onclick = reservar;
   actualizarBarra();
+}
+
+// ---------- Fotos de referencia (se comprimen en el teléfono: ~1000 px, JPG < 300 KB) ----------
+function dibujarRefs() {
+  const caja = $('#refs');
+  if (!caja) return;
+  const lleno = S.refs.length >= MAX_REFS;
+  caja.innerHTML = S.refs.map((r, i) => `<div class="ref-mini">
+      <button type="button" class="ref-ver" data-ver="${i}" aria-label="Ver foto ${i + 1}"><img src="${esc(r.url)}" alt="Foto ${i + 1} del diseño"></button>
+      <button type="button" class="ref-quitar" data-quitar="${i}" aria-label="Quitar foto ${i + 1}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+    </div>`).join('') + (lleno ? '' : `
+    <button type="button" class="ref-agregar" data-abrir="refs-galeria">${icono('mas')}<span>Galería</span></button>
+    <button type="button" class="ref-agregar" data-abrir="refs-camara">${icono('camara')}<span>Cámara</span></button>`)
+    + (S.refsCargando ? '<p class="ayuda refs-estado">Preparando fotos…</p>' : '');
+  $$('[data-abrir]', caja).forEach((b) => b.addEventListener('click', () => $('#' + b.dataset.abrir).click()));
+  $$('[data-quitar]', caja).forEach((b) => b.addEventListener('click', () => {
+    const [r] = S.refs.splice(+b.dataset.quitar, 1); URL.revokeObjectURL(r.url); dibujarRefs();
+  }));
+  $$('[data-ver]', caja).forEach((b) => b.addEventListener('click', () => abrirFotos(S.refs.map((r) => r.url), 'Fotos del diseño', +b.dataset.ver)));
+}
+
+async function agregarRefs(e) {
+  const archivos = [...(e.target.files || [])];
+  e.target.value = '';
+  if (!archivos.length) return;
+  const lugar = MAX_REFS - S.refs.length;
+  if (archivos.length > lugar) toast(`Puedes agregar hasta ${MAX_REFS} fotos.`, 'error');
+  S.refsCargando = true; dibujarRefs();
+  let malas = 0;
+  for (const f of archivos.slice(0, Math.max(0, lugar))) {
+    try {
+      const { blob } = await comprimirFoto(f, { lado: 1000, kb: 300, formato: 'image/jpeg' });
+      if (blob.size > 300 * 1024) throw new Error('FOTO_INVALIDA');
+      S.refs.push({ blob, url: URL.createObjectURL(blob) });
+    } catch { malas++; }
+  }
+  S.refsCargando = false; dibujarRefs();
+  if (malas) toast('No se pudo leer alguna foto. Prueba con otra (JPG, PNG o WEBP).', 'error');
+}
+
+const aDataURL = (blob) => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+
+/** Sube las fotos al pedido recién creado con su permiso de un solo uso. Devuelve cuántas quedaron guardadas (0 si falló). */
+async function subirRefs(turnoId, token, blobs) {
+  if (DEMO) return guardarReferenciasDemo(turnoId, await Promise.all(blobs.map(aDataURL))) ? blobs.length : 0;
+  const fd = new FormData();
+  fd.append('turno_id', turnoId); fd.append('token', token);
+  blobs.forEach((b, i) => fd.append('foto', b, `referencia-${i + 1}.jpg`));
+  for (let intento = 0; intento < 2; intento++) {
+    try {
+      const r = await fetch(`${FUNCIONES_URL}/referencias-turno`, { method: 'POST', body: fd, headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) return j.fotos || blobs.length;
+      if (r.status < 500) return 0; // permiso vencido o foto inválida: no tiene sentido reintentar
+    } catch { /* sin conexión: se reintenta una vez */ }
+  }
+  return 0;
 }
 
 function rangoDias() {
@@ -226,16 +294,28 @@ function actualizarBarra() {
 
 async function reservar() {
   if (S.enviando) return;
+  if (S.refsCargando) { toast('Espera a que terminen de prepararse las fotos.'); return; }
   const nombre = $('#nombre').value.trim(), telefono = normalizarTelefono($('#telefono').value), notas = $('#notas').value.trim();
   S.enviando = true; actualizarBarra();
   try {
-    const { data, error } = await sb.rpc('pro_solicitar_turno', {
-      p_slug: SLUG, p_servicio_id: S.servicio, p_fecha: S.fecha, p_hora: S.hora, p_nombre: nombre, p_telefono: telefono, p_notas: notas || null,
-    });
+    const args = { p_slug: SLUG, p_servicio_id: S.servicio, p_fecha: S.fecha, p_hora: S.hora, p_nombre: nombre, p_telefono: telefono, p_notas: notas || null };
+    if (S.refs.length) args.p_fotos = S.refs.length;
+    const { data, error } = await sb.rpc('pro_solicitar_turno', args);
     if (error) throw error;
     localStorage.setItem(CLAVE_CLIENTA, JSON.stringify({ nombre, telefono: $('#telefono').value.trim() }));
     S.enviando = false;
-    confirmacion(data, nombre);
+    const refs = S.refs.splice(0);
+    confirmacion(data, nombre, refs.length && data.ref_token ? refs.length : 0);
+    if (refs.length) {
+      const ok = data.ref_token ? await subirRefs(data.id, data.ref_token, refs.map((r) => r.blob)) : 0;
+      refs.forEach((r) => URL.revokeObjectURL(r.url));
+      const est = $('#estado-refs');
+      if (est) {
+        est.classList.toggle('refs-ok', !!ok); est.classList.toggle('refs-falla', !ok);
+        est.innerHTML = ok ? `${icono('chispa')}${ok === 1 ? 'Foto del diseño enviada' : `${ok} fotos del diseño enviadas`}.`
+          : `Tu turno quedó pedido, pero no pudimos enviar las fotos del diseño. Si quieres, mándalas por WhatsApp.`;
+      }
+    }
   } catch (e) {
     S.enviando = false;
     const msg = mensajeError(e);
@@ -250,7 +330,7 @@ async function reservar() {
   }
 }
 
-function confirmacion(r, nombre) {
+function confirmacion(r, nombre, nFotos = 0) {
   barra.hidden = true;
   const c = S.config;
   const msg = `¡Hola! Soy ${nombre}. Acabo de pedir un turno online: ${r.servicio_nombre} ${fechaRelativa(r.fecha)} a las ${r.hora_inicio} h.`;
@@ -280,6 +360,7 @@ function confirmacion(r, nombre) {
           <div><dt>Estado</dt><dd><span class="chip chip-pendiente">Pendiente de confirmación</span></dd></div>
         </dl>
       </div>
+      ${nFotos ? `<p class="estado-refs" id="estado-refs" role="status">Enviando ${nFotos === 1 ? 'la foto' : `${nFotos} fotos`} del diseño…</p>` : ''}
       ${cajaSena}
       <div class="acciones-columna">
         ${wa && !waSena ? `<a class="btn btn-whatsapp btn-grande" href="${wa}" target="_blank" rel="noopener">${icono('whatsapp')}Escríbeme por WhatsApp</a>` : ''}
@@ -294,7 +375,7 @@ function confirmacion(r, nombre) {
     b.textContent = '¡Alias copiado!'; toast(`Alias copiado: ${alias}`);
     setTimeout(() => { b.textContent = 'Copiar alias'; }, 2500);
   });
-  $('#otro').onclick = () => { S.hora = null; dibujarFormulario(); cargarDias(); scrollTo(0, 0); };
+  $('#otro').onclick = () => { S.hora = null; S.refs = []; dibujarFormulario(); cargarDias(); scrollTo(0, 0); };
   scrollTo(0, 0);
 }
 

@@ -1,7 +1,7 @@
 // Gestión privada (sólo superadmin): clientas y agendas. El acceso real lo controlan RLS y las funciones pro_admin_*.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm';
 import { SUPABASE_URL, SUPABASE_KEY, BUCKET_LOGOS } from '../pro/js/config.js';
-import { $, $$, esc, icono, toast, confirmar, abrirHoja, mensajeError, logoHTML, linkWhatsApp, hoyAR } from '../pro/js/comun.js?v=p6';
+import { $, $$, esc, icono, toast, confirmar, abrirHoja, mensajeError, logoHTML, linkWhatsApp, hoyAR } from '../pro/js/comun.js?v=p7';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'agenda-nail-gestion-auth' },
