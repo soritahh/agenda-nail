@@ -522,3 +522,67 @@ textarea { resize: vertical; min-height: 84px; }
 .codigo-activacion { margin: 14px 0 8px; padding: 14px; border-radius: 16px; background: var(--fucsia-suave); text-align: center; font-size: 1.9rem; font-weight: 700; letter-spacing: 0.18em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--plum); user-select: all; }
 .input-codigo { text-transform: uppercase; letter-spacing: 0.2em; text-align: center; font-size: 1.25rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .acceso-alterno { margin-top: 6px; }
+
+/* ---------- Fotos de servicios, extras y seña ---------- */
+.miniatura-foto { padding: 0; border: 0; overflow: hidden; cursor: zoom-in; background: var(--blush-1); }
+.opcion-servicio .miniatura-foto { width: 64px; height: 64px; border-radius: 16px; }
+.miniatura-foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.miniatura-foto::after { display: none; }
+.miniatura-foto:focus-visible { outline: 3px solid rgba(226, 63, 140, 0.45); outline-offset: 2px; }
+.miniatura-n { position: absolute; right: 4px; bottom: 4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: rgba(59, 36, 48, 0.72); color: #fff; font-size: 0.7rem; line-height: 18px; text-align: center; }
+.opcion-desc { color: var(--gris); font-size: 0.86rem; line-height: 1.3; margin: 1px 0 2px; }
+.chip-sena { align-self: flex-start; margin-top: 5px; padding: 2px 9px; border-radius: 999px; background: var(--blush-1);
+  color: var(--fucsia-2); font-size: 0.78rem; font-weight: 500; white-space: nowrap; }
+.resumen-sena { color: var(--fucsia-2); font-weight: 400; white-space: nowrap; }
+.nota-extras { margin-top: 12px; padding: 12px 14px; border-radius: 16px; border: 1.5px dashed var(--blush-3); background: #fffafb; font-size: 0.94rem; }
+.nota-extras p { margin: 0; }
+.nota-extras p + p { margin-top: 6px; }
+.nota-extras-titulo { display: flex; align-items: center; gap: 6px; font-weight: 500; color: var(--plum); margin-bottom: 4px !important; }
+.nota-extras-titulo svg { width: 16px; height: 16px; color: var(--oro); }
+.nota-extras-precio { color: var(--plum); font-weight: 500; white-space: nowrap; }
+.caja-sena { display: flex; flex-direction: column; gap: 10px; border: 1.5px solid var(--blush-3); }
+.caja-sena p { margin: 0; line-height: 1.45; }
+.caja-sena-titulo { display: flex; align-items: center; gap: 6px; font-weight: 500; color: var(--plum); }
+.caja-sena-titulo svg { width: 18px; height: 18px; color: var(--oro); }
+.caja-sena .alias { color: var(--fucsia-2); word-break: break-all; }
+.pedido-sena { margin: 2px 0 0; color: var(--fucsia-2); font-size: 0.92rem; }
+
+/* Visor de fotos */
+.visor-capa { position: fixed; inset: 0; z-index: 200; background: rgba(25, 10, 18, 0.92); display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.18s; touch-action: pan-y; }
+.visor-capa.abierta { opacity: 1; }
+.visor-fig { margin: 0; max-width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 0 12px; }
+.visor-img { max-width: min(100%, 800px); max-height: calc(100vh - 120px); max-height: calc(100dvh - 120px); border-radius: 14px; object-fit: contain; background: #2a1a22; }
+.visor-fig figcaption { color: #fff; font-size: 0.95rem; text-align: center; }
+.visor-cuenta { opacity: 0.7; }
+.visor-cerrar, .visor-flecha { position: absolute; border: 0; border-radius: 50%; width: 46px; height: 46px; display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.16); color: #fff; cursor: pointer; }
+.visor-cerrar svg, .visor-flecha svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.visor-cerrar { top: calc(12px + env(safe-area-inset-top)); right: 12px; }
+.visor-flecha { top: 50%; transform: translateY(-50%); }
+.visor-ant { left: 8px; }
+.visor-sig { right: 8px; }
+
+/* Panel: fotos del servicio y horarios fijos */
+.fila-servicio .miniatura-foto { cursor: pointer; }
+.fotos-srv { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fotos-srv.subiendo { pointer-events: none; opacity: 0.7; }
+.foto-srv { display: flex; flex-direction: column; gap: 6px; }
+.foto-srv-ver { padding: 0; border: 0; border-radius: 14px; overflow: hidden; aspect-ratio: 1; background: var(--blush-1); cursor: zoom-in; }
+.foto-srv-ver img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.foto-srv-acc { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.foto-srv-acc .btn { min-height: 38px; padding: 6px 12px; font-size: 0.88rem; }
+.foto-srv-agregar { aspect-ratio: 1; border: 1.5px dashed var(--blush-3); border-radius: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; color: var(--fucsia-2); cursor: pointer; background: #fffafb; font-size: 0.92rem; }
+.foto-srv-agregar svg { width: 26px; height: 26px; }
+.foto-srv-estado { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin: 0; }
+#h-modo { margin-bottom: 8px; }
+.horas-fijas { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.chips-horas { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-hora { display: inline-flex; align-items: center; gap: 2px; padding: 4px 4px 4px 11px; border-radius: 999px; background: var(--blush-1); border: 1px solid var(--borde); font-weight: 500; font-size: 0.92rem; }
+.chip-hora button { border: 0; background: transparent; color: var(--gris); width: 26px; height: 26px; border-radius: 50%; font-size: 1.05rem; line-height: 1; cursor: pointer; }
+.hf-agregar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.hf-agregar input { width: auto; flex: 0 0 auto; }
+.btn-texto { background: transparent; color: var(--fucsia-2); min-height: 40px; box-shadow: none; }
+.caja-sena b:not(.alias), .chip-sena, .pedido-sena b { white-space: nowrap; }

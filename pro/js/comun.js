@@ -1,7 +1,7 @@
 // Utilidades compartidas por la página de reservas y el panel.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm';
-import { SUPABASE_URL, SUPABASE_KEY, ZONA, BUCKET_LOGOS } from './config.js';
-import { DEMO, DEMO_AVISO, crearClienteDemo, logoDemo, reiniciarDemo } from './demo.js?v=p5';
+import { SUPABASE_URL, SUPABASE_KEY, ZONA, BUCKET_LOGOS, BUCKET_SERVICIOS } from './config.js?v=p6';
+import { DEMO, DEMO_AVISO, crearClienteDemo, logoDemo, fotoDemo, reiniciarDemo } from './demo.js?v=p6';
 
 export { DEMO, DEMO_AVISO, reiniciarDemo };
 // En modo demo (r/?m=demo, panel.html?demo=1) todo vive en este dispositivo: no se toca la base real.
@@ -85,18 +85,24 @@ export function duracionTexto(min) {
 }
 
 /** Horarios de inicio libres para un día. */
-export function horariosLibres({ fecha, horario, intervalo, duracion, ocupados }) {
+export function horariosLibres({ fecha, horario, intervalo, duracion, ocupados, modo = 'rango' }) {
   if (!horario || !horario.trabaja) return [];
-  const ini = aMin(horario.inicio), fin = aMin(horario.fin);
   const esHoy = fecha === hoyAR(), ahora = minutosAhoraAR();
   const busy = ocupados.filter((o) => o.fecha === fecha).map((o) => [aMin(o.hora_inicio), aMin(o.hora_fin)]);
-  const libres = [];
-  for (let t = ini; t + duracion <= fin; t += intervalo) {
-    if (esHoy && t <= ahora) continue;
-    if (busy.some(([s, e]) => t < e && t + duracion > s)) continue;
-    libres.push(aHora(t));
+  let candidatos = [];
+  if (modo === 'fijo') {
+    // Horarios fijos: sólo esas horas de inicio (el turno puede pasarse de la siguiente; se bloquea si pisa otro turno).
+    candidatos = [...new Set((horario.horas_fijas || []).map((t) => aMin(hora5(t))))].sort((a, b) => a - b).filter((t) => t + duracion <= 24 * 60 - 1);
+  } else {
+    const ini = aMin(horario.inicio), fin = aMin(horario.fin);
+    for (let t = ini; t + duracion <= fin; t += intervalo) candidatos.push(t);
   }
-  return libres;
+  return candidatos.filter((t) => !(esHoy && t <= ahora) && !busy.some(([s, e]) => t < e && t + duracion > s)).map(aHora);
+}
+
+/** Seña en pesos según el % de la agenda (null si no corresponde). */
+export function senaDe(precio, pct) {
+  return precio == null || !(pct > 0) ? null : Math.round((precio * pct) / 100);
 }
 
 // ---------- Teléfonos ----------
@@ -174,6 +180,8 @@ export function mensajeError(err) {
   if (m.includes('DEMASIADOS_PEDIDOS')) return 'Ya tienes varios pedidos pendientes. Espera la confirmación o escríbeme por WhatsApp.';
   if (m.includes('DATOS_INVALIDOS')) return 'Revisa tu nombre y teléfono.';
   if (m.includes('AGENDA_NO_DISPONIBLE')) return 'Esta agenda no está disponible por ahora.';
+  if (m.includes('FOTO_INVALIDA')) return 'No se pudo leer esa imagen. Prueba con otra foto (JPG, PNG o WEBP).';
+  if (m.includes('pro_servicios_fotos_ok')) return 'Cada servicio puede tener hasta 2 fotos.';
   if (m.includes('SLUG_EN_USO')) return 'Ese link ya está en uso. Prueba con otro.';
   if (m.includes('SLUG_INVALIDO')) return 'El link solo puede tener minúsculas, números y guiones (3 a 30 caracteres).';
   if (m.includes('SIN_PERMISO')) return 'No tienes permiso para hacer esto.';
@@ -196,6 +204,64 @@ export function urlLogo(path) {
   if (DEMO) return path ? logoDemo(path) : '';
   return path ? `${SUPABASE_URL}/storage/v1/object/public/${BUCKET_LOGOS}/${path.split('/').map(encodeURIComponent).join('/')}` : '';
 }
+/** URL pública de una foto de servicio. */
+export function urlFoto(path) {
+  if (!path) return '';
+  if (DEMO) return fotoDemo(path);
+  return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET_SERVICIOS}/${path.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+/** Visor simple de fotos (una o dos): flechas, deslizar, Esc y tocar fuera para cerrar. */
+export function abrirFotos(urls, titulo = '', inicio = 0) {
+  if (!urls || !urls.length) return;
+  let i = inicio;
+  const capa = document.createElement('div');
+  capa.className = 'visor-capa';
+  capa.setAttribute('role', 'dialog'); capa.setAttribute('aria-modal', 'true'); capa.setAttribute('aria-label', titulo || 'Foto');
+  const varias = urls.length > 1;
+  capa.innerHTML = `<button class="visor-cerrar" data-cerrar aria-label="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <figure class="visor-fig"><img class="visor-img" alt="${esc(titulo)}"><figcaption>${esc(titulo)}<span class="visor-cuenta"></span></figcaption></figure>
+    ${varias ? `<button class="visor-flecha visor-ant" aria-label="Foto anterior"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button class="visor-flecha visor-sig" aria-label="Foto siguiente"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>` : ''}`;
+  const img = capa.querySelector('.visor-img'), cuenta = capa.querySelector('.visor-cuenta');
+  const mostrar = () => { img.src = urls[i]; cuenta.textContent = varias ? ` · ${i + 1}/${urls.length}` : ''; };
+  const mover = (d) => { if (varias) { i = (i + d + urls.length) % urls.length; mostrar(); } };
+  const cerrar = () => { capa.remove(); document.removeEventListener('keydown', tecla); };
+  const tecla = (e) => { if (e.key === 'Escape') cerrar(); else if (e.key === 'ArrowLeft') mover(-1); else if (e.key === 'ArrowRight') mover(1); };
+  capa.addEventListener('click', (e) => {
+    if (e.target.closest('.visor-ant')) mover(-1);
+    else if (e.target.closest('.visor-sig')) mover(1);
+    else if (e.target === capa || e.target.closest('[data-cerrar]')) cerrar();
+  });
+  let x0 = null;
+  capa.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  capa.addEventListener('touchend', (e) => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 40) mover(dx < 0 ? 1 : -1); });
+  document.addEventListener('keydown', tecla);
+  mostrar();
+  document.body.appendChild(capa);
+  requestAnimationFrame(() => capa.classList.add('abierta'));
+  capa.querySelector('.visor-cerrar').focus();
+}
+
+/** Achica una foto a 800 px de ancho (máx. 1600 de alto) y la comprime a WEBP (o JPG) de menos de ~200 KB. */
+export async function comprimirFoto(file) {
+  if (!/^image\//.test(file.type)) throw new Error('FOTO_INVALIDA');
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => null);
+  const fuente = bmp || await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('FOTO_INVALIDA')); im.src = URL.createObjectURL(file); });
+  const w0 = fuente.width, h0 = fuente.height;
+  const k = Math.min(1, 800 / w0, 1600 / h0);
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(w0 * k); cv.height = Math.round(h0 * k);
+  cv.getContext('2d').drawImage(fuente, 0, 0, cv.width, cv.height);
+  const aBlob = (tipo, q) => new Promise((res) => cv.toBlob(res, tipo, q));
+  let tipo = 'image/webp';
+  let blob = await aBlob(tipo, 0.82);
+  if (!blob || blob.type !== 'image/webp') { tipo = 'image/jpeg'; blob = await aBlob(tipo, 0.82); }
+  for (const q of [0.74, 0.66, 0.58, 0.5]) { if (blob.size <= 200 * 1024) break; blob = await aBlob(tipo, q); }
+  if (!blob) throw new Error('FOTO_INVALIDA');
+  return { blob, tipo, ext: tipo === 'image/webp' ? 'webp' : 'jpg' };
+}
+
 export function iniciales(nombre) {
   const p = String(nombre || '').trim().split(/\s+/).filter((w) => /^[\p{L}\p{N}]/u.test(w));
   return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase();

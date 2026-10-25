@@ -47,6 +47,7 @@ function leer() {
 function guardar(d) { localStorage.setItem(CLAVE, JSON.stringify(d)); }
 export function reiniciarDemo() { localStorage.removeItem(CLAVE); }
 export function logoDemo(path) { return path === 'demo:logo' ? LOGO_DEMO : (leer().logos || {})[path] || ''; }
+export function fotoDemo(path) { return (leer().fotos || {})[path] || ''; }
 
 const TABLAS = { profesionales: 'pro', pro_horarios: 'horarios', pro_servicios: 'servicios', pro_turnos: 'turnos' };
 const filas = (d, t) => (t === 'profesionales' ? [d.pro] : d[TABLAS[t]]);
@@ -111,20 +112,24 @@ function insertarTurno(d, srv, fecha, hora, nombre, tel, notas, estado) {
   const ini = aMin(hora), fin = ini + srv.duracion_min;
   const choca = d.turnos.some((t) => t.fecha === fecha && ACTIVOS.includes(t.estado) && aMin(t.hora_inicio) < fin && ini < aMin(t.hora_fin));
   if (choca) throw new Error('HORARIO_OCUPADO');
+  const pct = d.pro.sena_pct || 0, sena = srv.precio == null || pct <= 0 ? null : Math.round((srv.precio * pct) / 100);
   const t = { id: uid(), profesional_id: d.pro.id, clienta_nombre: nombre, clienta_telefono: tel, servicio_id: srv.id, servicio_nombre: srv.nombre,
-    precio: srv.precio, fecha, hora_inicio: aHora(ini), hora_fin: aHora(fin), notas, estado, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    precio: srv.precio, sena, fecha, hora_inicio: aHora(ini), hora_fin: aHora(fin), notas, estado, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   d.turnos.push(t); guardar(d);
-  return { id: t.id, fecha, hora_inicio: t.hora_inicio.slice(0, 5), hora_fin: t.hora_fin.slice(0, 5), servicio_nombre: srv.nombre, precio: srv.precio, estado };
+  return { id: t.id, fecha, hora_inicio: t.hora_inicio.slice(0, 5), hora_fin: t.hora_fin.slice(0, 5), servicio_nombre: srv.nombre, precio: srv.precio, sena, alias_pago: d.pro.alias_pago || null, estado };
 }
 const limpiar = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const RPC = {
   pro_pagina({ p_slug }) {
     const d = leer(), p = d.pro;
     if ((p_slug || '').toLowerCase() !== 'demo') return { existe: false, disponible: false };
+    const activos = d.servicios.filter((s) => s.activo).sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
     return { existe: true, disponible: true, slug: p.slug, nombre: p.nombre, logo_path: p.logo_path, color: p.color, whatsapp: p.whatsapp,
       instagram: p.instagram, zona: p.zona, intervalo_min: p.intervalo_min, dias_reserva: p.dias_reserva,
-      horarios: [...d.horarios].sort((a, b) => a.dia - b.dia).map(({ dia, trabaja, inicio, fin }) => ({ dia, trabaja, inicio, fin })),
-      servicios: d.servicios.filter((s) => s.activo).sort((a, b) => (a.created_at < b.created_at ? -1 : 1)).map(({ id, nombre, precio, duracion_min }) => ({ id, nombre, precio, duracion_min })) };
+      modo_horario: p.modo_horario || 'rango', sena_pct: p.sena_pct || 0, alias_pago: p.alias_pago || null,
+      horarios: [...d.horarios].sort((a, b) => a.dia - b.dia).map(({ dia, trabaja, inicio, fin, horas_fijas }) => ({ dia, trabaja, inicio, fin, horas_fijas: horas_fijas || [] })),
+      servicios: activos.filter((s) => !s.es_extra).map(({ id, nombre, precio, duracion_min, descripcion, fotos }) => ({ id, nombre, precio, duracion_min, descripcion: descripcion || null, fotos: fotos || [] })),
+      extras: activos.filter((s) => s.es_extra).map(({ id, nombre, precio, descripcion }) => ({ id, nombre, precio, descripcion: descripcion || null })) };
   },
   pro_horarios_ocupados({ p_desde, p_hasta }) {
     return leer().turnos.filter((t) => ACTIVOS.includes(t.estado) && t.fecha >= p_desde && t.fecha <= p_hasta)
@@ -135,13 +140,16 @@ const RPC = {
     const d = leer(), nombre = limpiar(p_nombre), tel = String(p_telefono || '').replace(/\D/g, ''), notas = limpiar(p_notas) || null;
     if (nombre.length < 2 || nombre.length > 80) throw new Error('DATOS_INVALIDOS: nombre');
     if (!/^\d{8,15}$/.test(tel)) throw new Error('DATOS_INVALIDOS: telefono');
-    const srv = d.servicios.find((s) => s.id === p_servicio_id && s.activo);
+    const srv = d.servicios.find((s) => s.id === p_servicio_id && s.activo && !s.es_extra);
     if (!srv) throw new Error('SERVICIO_NO_DISPONIBLE');
     const h = hoy();
     if (!p_fecha || p_fecha < h || p_fecha > masDias(h, d.pro.dias_reserva)) throw new Error('FECHA_INVALIDA');
     if (p_fecha === h && aMin(p_hora) <= ahoraMin()) throw new Error('FECHA_INVALIDA');
     const hor = d.horarios.find((x) => x.dia === dow(p_fecha));
-    if (!hor || !hor.trabaja || aMin(p_hora) < aMin(hor.inicio) || (aMin(p_hora) - aMin(hor.inicio)) % d.pro.intervalo_min
+    if (!hor || !hor.trabaja) throw new Error('FUERA_DE_HORARIO');
+    if (d.pro.modo_horario === 'fijo') {
+      if (!(hor.horas_fijas || []).some((t) => String(t).slice(0, 5) === String(p_hora).slice(0, 5)) || aMin(p_hora) + srv.duracion_min > 24 * 60 - 1) throw new Error('FUERA_DE_HORARIO');
+    } else if (aMin(p_hora) < aMin(hor.inicio) || (aMin(p_hora) - aMin(hor.inicio)) % d.pro.intervalo_min
       || aMin(hor.fin) - aMin(p_hora) < srv.duracion_min) throw new Error('FUERA_DE_HORARIO');
     if (d.turnos.filter((t) => t.clienta_telefono === tel && t.estado === 'pendiente' && t.fecha >= h).length >= 3) throw new Error('DEMASIADOS_PEDIDOS');
     return insertarTurno(d, srv, p_fecha, p_hora, nombre, tel, notas, 'pendiente');
@@ -152,7 +160,7 @@ const RPC = {
     if (tel && !/^\d{8,15}$/.test(tel)) throw new Error('DATOS_INVALIDOS: telefono');
     if (!['aprobado', 'pendiente'].includes(p_estado)) throw new Error('DATOS_INVALIDOS: estado');
     if (!p_fecha || !p_hora) throw new Error('FECHA_INVALIDA');
-    const srv = d.servicios.find((s) => s.id === p_servicio_id);
+    const srv = d.servicios.find((s) => s.id === p_servicio_id && !s.es_extra);
     if (!srv) throw new Error('SERVICIO_NO_DISPONIBLE');
     if (aMin(p_hora) + srv.duracion_min > 24 * 60 - 1) throw new Error('FUERA_DE_HORARIO');
     return insertarTurno(d, srv, p_fecha, p_hora, nombre, tel, notas, p_estado);
@@ -183,11 +191,17 @@ export function crearClienteDemo() {
         // El logo subido en la demo queda como imagen dentro del navegador (no se sube a ningún lado).
         upload: (path, file) => new Promise((res) => {
           const fr = new FileReader();
-          fr.onload = () => { try { const d = leer(); d.logos = { [path]: fr.result }; guardar(d); res({ data: { path }, error: null }); } catch { res({ data: null, error: err('La imagen es muy pesada para guardarla en la demo.') }); } };
+          fr.onload = () => {
+            try {
+              const d = leer();
+              if (path.includes('/servicios/')) d.fotos = { ...(d.fotos || {}), [path]: fr.result }; else d.logos = { [path]: fr.result };
+              guardar(d); res({ data: { path }, error: null });
+            } catch { res({ data: null, error: err('La imagen es muy pesada para guardarla en la demo.') }); }
+          };
           fr.onerror = () => res({ data: null, error: err('No se pudo leer la imagen.') });
           fr.readAsDataURL(file);
         }),
-        remove: async () => ({ data: null, error: null }),
+        remove: async (paths = []) => { const d = leer(); if (d.fotos) { paths.forEach((p) => delete d.fotos[p]); guardar(d); } return { data: null, error: null }; },
       }),
     },
   };

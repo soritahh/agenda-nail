@@ -2,10 +2,10 @@
 import {
   sb, $, $$, esc, precioTexto, icono, iconoServicio, hoyAR, sumarDias, diaSemana, DIAS_CORTOS, fechaLarga, capitalizar, fechaRelativa,
   duracionTexto, horariosLibres, aMin, normalizarTelefono, linkWhatsApp, toast, mensajeError, registrarSW, hora5,
-  logoHTML, aplicarColor, DEMO, bannerDemo,
-} from './comun.js?v=p5';
+  logoHTML, aplicarColor, DEMO, bannerDemo, pesos, senaDe, urlFoto, abrirFotos,
+} from './comun.js?v=p6';
 
-const S = { config: null, horarios: [], servicios: [], ocupados: [], listo: false, servicio: null, fecha: null, hora: null, enviando: false };
+const S = { config: null, horarios: [], servicios: [], extras: [], ocupados: [], listo: false, servicio: null, fecha: null, hora: null, enviando: false };
 const app = $('#app'), barra = $('#barra'), btn = $('#btn-reservar');
 const DIAS_VISTA = 21;
 const SLUG = (new URLSearchParams(location.search).get('m') || (location.hash.match(/^#\/?([a-z0-9-]+)/) || [])[1] || '').toLowerCase().trim();
@@ -20,8 +20,9 @@ async function iniciar() {
     if (!data.existe) return noDisponible('No encontramos esta agenda. Revisa el link que te pasaron.');
     if (!data.disponible) return noDisponible('Agenda no disponible por ahora. Vuelve a intentarlo más adelante.', data.nombre);
     S.config = { ...data, nombre_salon: data.nombre, direccion: data.zona };
-    S.horarios = data.horarios.map((h) => ({ ...h, inicio: hora5(h.inicio), fin: hora5(h.fin) }));
-    S.servicios = data.servicios;
+    S.horarios = data.horarios.map((h) => ({ ...h, inicio: hora5(h.inicio), fin: hora5(h.fin), horas_fijas: (h.horas_fijas || []).map(hora5) }));
+    S.servicios = data.servicios.map((v) => ({ ...v, fotos: v.fotos || [] }));
+    S.extras = data.extras || [];
   } catch (e) {
     return fallo(mensajeError(e));
   }
@@ -65,19 +66,30 @@ function cabecera(intro = true) {
 }
 
 const servicioActual = () => S.servicios.find((v) => v.id === S.servicio);
+const senaPct = () => Number(S.config?.sena_pct) || 0;
+const senaTexto = (precio) => { const s = senaDe(precio, senaPct()); return s == null ? '' : `Seña ${senaPct()}%: ${pesos(s)}`; };
+
+function miniaturaServicio(v) {
+  if (!v.fotos.length) return `<span class="miniatura" aria-hidden="true">${iconoServicio(v.nombre)}</span>`;
+  return `<button type="button" class="miniatura miniatura-foto" data-fotos="${esc(v.id)}" aria-label="Ver ${v.fotos.length > 1 ? 'fotos' : 'foto'} de ${esc(v.nombre)}">
+    <img src="${esc(urlFoto(v.fotos[0]))}" alt="" loading="lazy" decoding="async" width="64" height="64">${v.fotos.length > 1 ? `<span class="miniatura-n">${v.fotos.length}</span>` : ''}</button>`;
+}
 
 function dibujarFormulario() {
   app.innerHTML = cabecera() + `
   <h2 class="paso"><span class="paso-n">1</span> Elige tu servicio</h2>
   <div class="lista-opciones" role="radiogroup" aria-label="Servicios">${S.servicios.map((v) => `
     <div class="opcion-servicio${v.id === S.servicio ? ' sel' : ''}" data-id="${esc(v.id)}" role="radio" tabindex="0" aria-checked="${v.id === S.servicio}">
-      <span class="miniatura" aria-hidden="true">${iconoServicio(v.nombre)}</span>
-      <div class="opcion-info"><strong>${esc(v.nombre)}</strong><small>${icono('reloj')}${duracionTexto(v.duracion_min)}</small></div>
+      ${miniaturaServicio(v)}
+      <div class="opcion-info"><strong>${esc(v.nombre)}</strong>${v.descripcion ? `<span class="opcion-desc">${esc(v.descripcion)}</span>` : ''}
+        <small>${icono('reloj')}${duracionTexto(v.duracion_min)}</small>${senaTexto(v.precio) ? `<span class="chip-sena">${senaTexto(v.precio)}</span>` : ''}</div>
       <div class="opcion-lado">
         <span class="opcion-precio${v.precio == null ? ' consultar' : ''}">${precioTexto(v.precio)}</span>
         <span class="radio-punto" aria-hidden="true"></span>
       </div>
     </div>`).join('')}</div>
+  ${S.extras.length ? `<div class="nota-extras"><p class="nota-extras-titulo">${icono('chispa')}Extras</p>${S.extras.map((x) => `
+    <p><b>${esc(x.nombre)}</b> <span class="nota-extras-precio">+ ${precioTexto(x.precio)}</span>${x.descripcion ? `<br><span class="texto-suave">${esc(x.descripcion)}. Pídelo en la nota.</span>` : ''}</p>`).join('')}</div>` : ''}
 
   <h2 class="paso"><span class="paso-n">2</span> Elige el día</h2>
   <div class="tira-dias" id="dias"><p class="texto-suave">Cargando días…</p></div>
@@ -95,7 +107,7 @@ function dibujarFormulario() {
     <div class="campo"><label for="notas">Nota (opcional)</label>
       <textarea id="notas" maxlength="300" rows="2" placeholder="Ej.: quiero francesita o diseño en dos uñas"></textarea></div>
   </div>
-  <p class="pie">Tu turno queda pendiente hasta que te lo confirme. ✦</p>`;
+  <p class="pie">${senaPct() ? `Para guardar el turno se pide una seña del ${senaPct()}%. ` : ''}Tu turno queda pendiente hasta que te lo confirme. ✦</p>`;
 
   const guardado = JSON.parse(localStorage.getItem(CLAVE_CLIENTA) || '{}');
   if (guardado.nombre) $('#nombre').value = guardado.nombre;
@@ -103,6 +115,7 @@ function dibujarFormulario() {
 
   $$('.opcion-servicio').forEach((el) => {
     const elegir = (e) => {
+      if (e.target.closest('.miniatura-foto')) return;
       if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
       e.preventDefault();
       S.servicio = el.dataset.id; S.hora = null;
@@ -111,6 +124,11 @@ function dibujarFormulario() {
     };
     el.addEventListener('click', elegir); el.addEventListener('keydown', elegir);
   });
+  $$('.miniatura-foto').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const v = S.servicios.find((x) => x.id === b.dataset.fotos);
+    if (v) abrirFotos(v.fotos.map(urlFoto), v.nombre);
+  }));
   $('#nombre').addEventListener('input', actualizarBarra);
   $('#telefono').addEventListener('input', actualizarBarra);
   barra.hidden = false;
@@ -136,7 +154,7 @@ function libresDe(fecha) {
   const srv = servicioActual();
   return horariosLibres({
     fecha, horario: S.horarios.find((h) => h.dia === diaSemana(fecha)),
-    intervalo: S.config.intervalo_min, duracion: srv ? srv.duracion_min : 60, ocupados: S.ocupados,
+    intervalo: S.config.intervalo_min, duracion: srv ? srv.duracion_min : 60, ocupados: S.ocupados, modo: S.config.modo_horario,
   });
 }
 
@@ -189,7 +207,7 @@ function dibujarHoras() {
 function actualizarBarra() {
   const srv = servicioActual();
   const partes = [];
-  if (srv) partes.push(`<b>${esc(srv.nombre)}</b> ${precioTexto(srv.precio)}`);
+  if (srv) partes.push(`<b>${esc(srv.nombre)}</b> ${precioTexto(srv.precio)}${senaTexto(srv.precio) ? ` <span class="resumen-sena">(${senaTexto(srv.precio)})</span>` : ''}`);
   if (S.fecha) partes.push(esc(capitalizar(fechaLarga(S.fecha))));
   if (S.hora) partes.push(`<b>${S.hora} h</b>`);
   $('#resumen').innerHTML = partes.join(' · ');
@@ -237,6 +255,16 @@ function confirmacion(r, nombre) {
   const c = S.config;
   const msg = `¡Hola! Soy ${nombre}. Acabo de pedir un turno online: ${r.servicio_nombre} ${fechaRelativa(r.fecha)} a las ${r.hora_inicio} h.`;
   const wa = c.whatsapp ? linkWhatsApp(c.whatsapp, msg) : '';
+  const sena = r.sena ?? senaDe(r.precio, senaPct()), alias = r.alias_pago || c.alias_pago || '';
+  const msgSena = `¡Hola! Soy ${nombre}. Pedí turno de ${r.servicio_nombre} ${fechaRelativa(r.fecha)} a las ${r.hora_inicio} h. Te envío el comprobante de la seña de ${pesos(sena)}.`;
+  const waSena = c.whatsapp && sena ? linkWhatsApp(c.whatsapp, msgSena) : '';
+  const cajaSena = !sena ? '' : `<div class="tarjeta caja-sena">
+      <p class="caja-sena-titulo">${icono('chispa')}Seña para guardar tu turno</p>
+      <p>${alias ? `Para guardar tu turno transfiere la seña de <b>${pesos(sena)}</b> al alias <b class="alias">${esc(alias)}</b> y envía el comprobante por WhatsApp.`
+        : `Para guardar tu turno se pide una seña de <b>${pesos(sena)}</b>. Escríbeme por WhatsApp y te paso los datos para transferir.`}</p>
+      ${alias ? `<button type="button" class="btn btn-secundario btn-grande" id="copiar-alias">Copiar alias</button>` : ''}
+      ${waSena ? `<a class="btn btn-whatsapp btn-grande" href="${waSena}" target="_blank" rel="noopener">${icono('whatsapp')}Enviar comprobante por WhatsApp</a>` : ''}
+    </div>`;
   app.innerHTML = cabecera(false) + `
     <section class="confirmacion" aria-live="polite">
       <div class="ok-grande" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
@@ -248,15 +276,24 @@ function confirmacion(r, nombre) {
           <div><dt>Día</dt><dd>${esc(capitalizar(fechaLarga(r.fecha)))}</dd></div>
           <div><dt>Hora</dt><dd>${esc(r.hora_inicio)} a ${esc(r.hora_fin)} h</dd></div>
           <div><dt>Precio</dt><dd>${precioTexto(r.precio)}</dd></div>
+          ${sena ? `<div><dt>Seña</dt><dd><b>${pesos(sena)}</b></dd></div>` : ''}
           <div><dt>Estado</dt><dd><span class="chip chip-pendiente">Pendiente de confirmación</span></dd></div>
         </dl>
       </div>
+      ${cajaSena}
       <div class="acciones-columna">
-        ${wa ? `<a class="btn btn-whatsapp btn-grande" href="${wa}" target="_blank" rel="noopener">${icono('whatsapp')}Escríbeme por WhatsApp</a>` : ''}
+        ${wa && !waSena ? `<a class="btn btn-whatsapp btn-grande" href="${wa}" target="_blank" rel="noopener">${icono('whatsapp')}Escríbeme por WhatsApp</a>` : ''}
         <button class="btn btn-secundario btn-grande" id="otro">Pedir otro turno</button>
       </div>
       <p class="pie">Si no puedes venir, avísame con tiempo. ¡Gracias! ✦</p>
     </section>`;
+  $('#copiar-alias')?.addEventListener('click', async (e) => {
+    const b = e.currentTarget;
+    try { await navigator.clipboard.writeText(alias); }
+    catch { const t = document.createElement('textarea'); t.value = alias; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); }
+    b.textContent = '¡Alias copiado!'; toast(`Alias copiado: ${alias}`);
+    setTimeout(() => { b.textContent = 'Copiar alias'; }, 2500);
+  });
   $('#otro').onclick = () => { S.hora = null; dibujarFormulario(); cargarDias(); scrollTo(0, 0); };
   scrollTo(0, 0);
 }

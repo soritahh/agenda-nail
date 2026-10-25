@@ -3,9 +3,9 @@ import {
   sb, $, $$, esc, pesos, precioTexto, icono, iconoServicio, parsePesos, pesosInput, hoyAR, sumarDias, parseFecha, fechaISO, diaSemana, DIAS, MESES,
   fechaLarga, fechaCorta, fechaRelativa, capitalizar, duracionTexto, hora5, linkWhatsApp, toast, confirmar, abrirHoja,
   mensajeError, registrarSW, logoHTML, aplicarColor, COLOR_BASE, horariosLibres, normalizarTelefono,
-  DEMO, bannerDemo, reiniciarDemo,
-} from './comun.js?v=p5';
-import { BUCKET_LOGOS } from './config.js';
+  DEMO, bannerDemo, reiniciarDemo, senaDe, urlFoto, abrirFotos, comprimirFoto,
+} from './comun.js?v=p6';
+import { BUCKET_LOGOS, BUCKET_SERVICIOS } from './config.js?v=p6';
 
 const acceso = $('#acceso'), app = $('#app'), main = $('#contenido');
 const P = { pro: null, user: null, mesAgenda: hoyAR().slice(0, 7), diaAgenda: hoyAR() };
@@ -331,6 +331,7 @@ function tarjetaTurno(t, { acciones, sinFecha = false }) {
     </div>
     <p class="pedido-clienta">${esc(t.clienta_nombre)}</p>
     <p class="pedido-servicio">${esc(t.servicio_nombre)}${t.precio == null ? '' : ` · <b>${pesos(t.precio)}</b>`}</p>
+    ${t.sena ? `<p class="pedido-sena">Seña: <b>${pesos(t.sena)}</b></p>` : ''}
     ${t.clienta_telefono ? `<a class="enlace-tel" href="tel:${esc(t.clienta_telefono)}">${esc(t.clienta_telefono)}</a>` : ''}
     ${t.notas ? `<p class="pedido-notas">“${esc(t.notas)}”</p>` : ''}
     ${pasado && t.estado === 'pendiente' ? '<p class="ayuda ayuda-error">Esta fecha ya pasó.</p>' : ''}
@@ -506,6 +507,7 @@ async function vistaNuevo(param) {
   try {
     [hs, { data: srvs }] = await Promise.all([cargarHorarios(),
       sb.from('pro_servicios').select('*').eq('profesional_id', P.pro.id).eq('activo', true).order('created_at').throwOnError()]);
+    srvs = srvs.filter((s) => !s.es_extra);
   } catch (e) { if (sigue()) $('#n-cont').innerHTML = `<p class="tarjeta vacio">${esc(mensajeError(e))}</p>`; return; }
   if (!sigue()) return;
   if (!srvs.length) {
@@ -535,7 +537,7 @@ async function vistaNuevo(param) {
     const { data, error } = await sb.from('pro_turnos').select('fecha,hora_inicio,hora_fin').eq('profesional_id', P.pro.id).eq('fecha', f).in('estado', ACTIVOS);
     if (f !== $('#n-fecha').value) return;
     if (error) { caja.innerHTML = `<span class="texto-suave">${esc(mensajeError(error))}</span>`; return; }
-    const libres = horariosLibres({ fecha: f, horario: hs.find((x) => x.dia === diaSemana(f)), intervalo: P.pro.intervalo_min, duracion: srv.duracion_min,
+    const libres = horariosLibres({ fecha: f, horario: hs.find((x) => x.dia === diaSemana(f)), intervalo: P.pro.intervalo_min, duracion: srv.duracion_min, modo: P.pro.modo_horario,
       ocupados: data.map((o) => ({ fecha: o.fecha, hora_inicio: hora5(o.hora_inicio), hora_fin: hora5(o.hora_fin) })) });
     caja.innerHTML = libres.length ? libres.map((t) => `<button type="button" class="hora${t === $('#n-hora').value ? ' sel' : ''}" data-h="${t}">${t}</button>`).join('')
       : '<span class="texto-suave">No quedan horarios libres en tu grilla ese día. Igual puedes cargar otra hora abajo.</span>';
@@ -569,6 +571,7 @@ async function vistaNuevo(param) {
 
 function editarServicio(s) {
   const nuevo = !s;
+  let fotos = [...(s?.fotos || [])];
   const { capa, cerrar } = abrirHoja(nuevo ? 'Nuevo servicio' : 'Editar servicio', `
     <form id="f-srv" novalidate>
       <div class="campo"><label for="s-nombre">Nombre</label><input id="s-nombre" maxlength="80" required value="${esc(s?.nombre || '')}" placeholder="Ej.: Semipermanente"></div>
@@ -577,18 +580,71 @@ function editarServicio(s) {
         <div class="campo"><label for="s-dur">Duración</label><select id="s-dur">${[15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 210, 240].map((d) => `<option value="${d}" ${(s?.duracion_min || 60) === d ? 'selected' : ''}>${duracionTexto(d)}</option>`).join('')}</select></div>
       </div>
       <p class="ayuda" style="margin:-6px 0 12px">Si dejas el precio vacío, tus clientas verán “Consultar precio”.</p>
-      ${nuevo ? '' : `<label class="interruptor"><input type="checkbox" id="s-activo" ${s.activo ? 'checked' : ''}><span>Visible para reservar</span></label>`}
+      <div class="campo"><label for="s-desc">Descripción (opcional)</label><textarea id="s-desc" maxlength="200" rows="2" placeholder="Ej.: Incluye deco en 2 uñas">${esc(s?.descripcion || '')}</textarea></div>
+      <label class="interruptor"><input type="checkbox" id="s-extra" ${s?.es_extra ? 'checked' : ''}><span>Es un extra (no se reserva aparte)</span></label>
+      <p class="ayuda" style="margin:-4px 0 12px">Los extras se muestran como nota debajo de los servicios. Ej.: diseño en todas las uñas.</p>
+      ${nuevo ? '<p class="ayuda">Después de guardar, toca el servicio para sumarle fotos.</p>' : `<label class="interruptor"><input type="checkbox" id="s-activo" ${s.activo ? 'checked' : ''}><span>Visible para reservar</span></label>
+      <div class="campo"><span class="label">Fotos (hasta 2)</span><div class="fotos-srv" id="s-fotos"></div>
+        <p class="ayuda">Se achican solas para que carguen rápido. Se guardan al momento.</p></div>`}
       <p id="s-error" class="form-error-general" hidden></p>
       <button class="btn btn-primario btn-grande" type="submit">Guardar</button>
     </form>`);
   const precio = $('#s-precio', capa);
   precio.addEventListener('input', () => { const n = parsePesos(precio.value); precio.value = n === null ? '' : pesosInput(n); });
+
+  // Fotos: se suben a pro-servicios/<id de la agenda>/servicios/ y se guardan en el servicio al momento.
+  const guardarFotos = async (nuevas) => {
+    const r = await sb.from('pro_servicios').update({ fotos: nuevas }).eq('id', s.id).eq('profesional_id', P.pro.id).select('fotos').single();
+    if (r.error) throw r.error;
+    fotos = r.data?.fotos || nuevas; s.fotos = fotos;
+  };
+  const pintarFotos = () => {
+    const caja = $('#s-fotos', capa); if (!caja) return;
+    caja.innerHTML = fotos.map((f, i) => `<div class="foto-srv">
+        <button type="button" class="foto-srv-ver" data-i="${i}" aria-label="Ver foto ${i + 1}"><img src="${esc(urlFoto(f))}" alt=""></button>
+        <div class="foto-srv-acc">
+          <label class="btn btn-secundario btn-compacto">Cambiar<input type="file" accept="image/*" class="oculto" data-cambiar="${i}"></label>
+          <button type="button" class="btn btn-texto-peligro btn-compacto" data-quitar="${i}">Quitar</button>
+        </div></div>`).join('')
+      + (fotos.length < 2 ? `<label class="foto-srv-agregar">${icono('mas')}<span>Agregar foto</span><input type="file" accept="image/*" class="oculto" data-agregar></label>` : '');
+    $$('.foto-srv-ver', caja).forEach((b) => b.onclick = () => abrirFotos(fotos.map(urlFoto), s.nombre, Number(b.dataset.i)));
+    $$('input[type=file]', caja).forEach((inp) => inp.addEventListener('change', async (e) => {
+      const f = e.target.files[0]; e.target.value = '';
+      if (!f) return;
+      const i = inp.dataset.cambiar != null ? Number(inp.dataset.cambiar) : fotos.length;
+      caja.classList.add('subiendo'); caja.insertAdjacentHTML('beforeend', '<p class="texto-suave foto-srv-estado"><span class="spinner"></span> Subiendo foto…</p>');
+      let path;
+      try {
+        const { blob, tipo, ext } = await comprimirFoto(f);
+        path = `${P.pro.id}/servicios/${s.id.slice(0, 8)}-${Date.now()}.${ext}`;
+        const up = await sb.storage.from(BUCKET_SERVICIOS).upload(path, blob, { contentType: tipo, cacheControl: '31536000', upsert: false });
+        if (up.error) throw up.error;
+        const vieja = fotos[i], nuevas = [...fotos]; nuevas[i] = path;
+        try { await guardarFotos(nuevas); } catch (err) { await sb.storage.from(BUCKET_SERVICIOS).remove([path]); throw err; }
+        if (vieja) await sb.storage.from(BUCKET_SERVICIOS).remove([vieja]);
+        toast(vieja ? 'Foto cambiada.' : 'Foto agregada.'); pintarServicios();
+      } catch (err) { toast(mensajeError(err), 'error'); }
+      caja.classList.remove('subiendo'); pintarFotos();
+    }));
+    $$('[data-quitar]', caja).forEach((b) => b.onclick = async () => {
+      if (!await confirmar({ titulo: '¿Quitar esta foto?', texto: 'Tus clientas dejarán de verla.', si: 'Quitar', peligro: true })) return;
+      const i = Number(b.dataset.quitar), vieja = fotos[i];
+      try {
+        await guardarFotos(fotos.filter((_, j) => j !== i));
+        await sb.storage.from(BUCKET_SERVICIOS).remove([vieja]);
+        toast('Foto quitada.'); pintarServicios();
+      } catch (err) { toast(mensajeError(err), 'error'); }
+      pintarFotos();
+    });
+  };
+  pintarFotos();
+
   $('#f-srv', capa).addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const nombre = $('#s-nombre', capa).value.trim(), p = parsePesos(precio.value);
     const err = $('#s-error', capa);
     if (!nombre) { err.textContent = 'Escribe el nombre del servicio.'; err.hidden = false; return; }
-    const fila = { nombre, precio: p, duracion_min: Number($('#s-dur', capa).value) };
+    const fila = { nombre, precio: p, duracion_min: Number($('#s-dur', capa).value), descripcion: $('#s-desc', capa).value.trim() || null, es_extra: $('#s-extra', capa).checked };
     if (!nuevo) fila.activo = $('#s-activo', capa).checked;
     const b = ev.submitter; b.disabled = true;
     const { error } = nuevo ? await sb.from('pro_servicios').insert({ ...fila, profesional_id: P.pro.id }) : await sb.from('pro_servicios').update(fila).eq('id', s.id).eq('profesional_id', P.pro.id);
@@ -645,8 +701,20 @@ async function vistaAjustes(param) {
       </div>
       <p class="ayuda">El fucsia es el color por defecto.</p>
     </section>
+    <section class="tarjeta" id="sec-sena">
+      <div class="tarjeta-titulo"><h2>Seña</h2></div>
+      <div class="fila-2">
+        <div class="campo"><label for="p-sena">Seña para reservar</label><select id="p-sena">${[0, 10, 20, 25, 30, 40, 50, 100].map((n) => `<option value="${n}" ${(Number(c.sena_pct) || 0) === n ? 'selected' : ''}>${n ? `${n}% del precio` : 'Sin seña'}</option>`).join('')}</select></div>
+        <div class="campo"><label for="p-alias">Alias para transferir</label><input id="p-alias" maxlength="60" autocapitalize="none" autocomplete="off" value="${esc(c.alias_pago || '')}" placeholder="tu.alias.mp"></div>
+      </div>
+      <p class="ayuda">Tus clientas ven cuánto es la seña y tu alias al pedir el turno, y te mandan el comprobante por WhatsApp. La app no cobra nada.</p>
+    </section>
     <section class="tarjeta" id="sec-horarios">
       <div class="tarjeta-titulo"><h2>Horarios de atención</h2></div>
+      <div class="segmentado" id="h-modo" role="radiogroup" aria-label="Tipo de horario">
+        <label><input type="radio" name="h-modo" value="rango" ${c.modo_horario === 'fijo' ? '' : 'checked'}><span>De corrido</span></label>
+        <label><input type="radio" name="h-modo" value="fijo" ${c.modo_horario === 'fijo' ? 'checked' : ''}><span>Horarios fijos</span></label></div>
+      <p class="ayuda" id="h-modo-ayuda"></p>
       <div class="lista-horarios" id="h-cont"><div class="cargando"><span class="spinner"></span> Cargando…</div></div>
     </section>
     <section class="tarjeta">
@@ -729,21 +797,53 @@ async function vistaAjustes(param) {
 
   const sigue = vigente();
   // Horarios
+  const fijo = () => $('input[name=h-modo]:checked')?.value === 'fijo';
   let hs;
   try { P.horarios = null; hs = await cargarHorarios(); } catch (e) { if (sigue()) $('#h-cont').innerHTML = `<p class="vacio">${esc(mensajeError(e))}</p>`; return; }
   if (!sigue()) return;
   $('#h-cont').innerHTML = orden.map((d) => { const h = hs.find((x) => x.dia === d); return `
     <div class="fila-horario" data-dia="${d}">
       <label class="interruptor"><input type="checkbox" class="h-trabaja" ${h.trabaja ? 'checked' : ''}><span>${capitalizar(DIAS[d])}</span></label>
-      <div class="horas-rango"${h.trabaja ? '' : ' hidden'}>
+      <div class="horas-rango"${h.trabaja && !fijo() ? '' : ' hidden'}>
         <input type="time" class="h-ini" value="${hora5(h.inicio)}" step="900" aria-label="Desde">
         <span>a</span>
         <input type="time" class="h-fin" value="${hora5(h.fin)}" step="900" aria-label="Hasta"></div>
+      <div class="horas-fijas"${h.trabaja && fijo() ? '' : ' hidden'}>
+        <div class="chips-horas">${chipsHoras((h.horas_fijas || []).map(hora5))}</div>
+        <div class="hf-agregar"><input type="time" class="hf-nueva" step="300" aria-label="Agregar hora de inicio (${DIAS[d]})"><button type="button" class="btn btn-secundario btn-compacto hf-mas">Agregar</button>
+        <button type="button" class="btn btn-texto btn-compacto hf-copiar">Copiar a los demás días</button></div>
+      </div>
       <span class="texto-suave h-cerrado"${h.trabaja ? ' hidden' : ''}>No atiendo</span>
     </div>`; }).join('');
-  $$('.fila-horario').forEach((f) => $('.h-trabaja', f).addEventListener('change', (e) => {
-    $('.horas-rango', f).hidden = !e.target.checked; $('.h-cerrado', f).hidden = e.target.checked;
-  }));
+  const visibilidad = () => {
+    $('#h-modo-ayuda').textContent = fijo() ? 'Tus clientas sólo pueden elegir estas horas de inicio. Si un turno se pisa con otro, ese horario se bloquea solo.'
+      : 'Tus clientas eligen entre la hora de inicio y la de fin, cada tantos minutos (lo eliges en “Turnos”).';
+    $$('.fila-horario').forEach((f) => {
+      const t = $('.h-trabaja', f).checked;
+      $('.horas-rango', f).hidden = !t || fijo(); $('.horas-fijas', f).hidden = !t || !fijo(); $('.h-cerrado', f).hidden = t;
+    });
+  };
+  const horasDe = (f) => $$('.chip-hora', f).map((x) => x.dataset.h);
+  const enlazarChips = (f) => $$('.chip-hora button', f).forEach((x) => x.onclick = () => { x.closest('.chip-hora').remove(); });
+  $$('.fila-horario').forEach((f) => {
+    $('.h-trabaja', f).addEventListener('change', visibilidad);
+    enlazarChips(f);
+    const agregar = () => {
+      const v = $('.hf-nueva', f).value; if (!v) return toast('Elige una hora para agregar.', 'error');
+      const hs2 = [...new Set([...horasDe(f), v])].sort();
+      if (hs2.length > 24) return toast('Puedes cargar hasta 24 horarios por día.', 'error');
+      $('.chips-horas', f).innerHTML = chipsHoras(hs2); enlazarChips(f); $('.hf-nueva', f).value = '';
+    };
+    $('.hf-mas', f).onclick = agregar;
+    $('.hf-nueva', f).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); agregar(); } });
+    $('.hf-copiar', f).onclick = () => {
+      const hs2 = horasDe(f);
+      $$('.fila-horario').forEach((g) => { if (g !== f && $('.h-trabaja', g).checked) { $('.chips-horas', g).innerHTML = chipsHoras(hs2); enlazarChips(g); } });
+      toast('Copiado a los días que atiendes.');
+    };
+  });
+  $$('input[name=h-modo]').forEach((x) => x.addEventListener('change', visibilidad));
+  visibilidad();
   pintarServicios();
   if (param === 'servicios') $('#sec-servicios').scrollIntoView({ block: 'start' });
 
@@ -756,17 +856,25 @@ async function vistaAjustes(param) {
     if (!nombre) return falla('Escribe el nombre de tu marca.');
     if (wa && !/^[0-9]{8,15}$/.test(wa)) return falla('Revisa el número de WhatsApp.');
     if (ig && !/^[A-Za-z0-9._]{1,30}$/.test(ig)) return falla('Revisa tu usuario de Instagram.');
-    const filas = $$('.fila-horario').map((f) => ({ dia: Number(f.dataset.dia), trabaja: $('.h-trabaja', f).checked, inicio: $('.h-ini', f).value, fin: $('.h-fin', f).value }));
-    const mala = filas.find((h) => h.trabaja && (!h.inicio || !h.fin || h.fin <= h.inicio));
+    const alias = $('#p-alias').value.trim().replace(/\s+/g, ''), senaPct = Number($('#p-sena').value);
+    if (alias && !/^[A-Za-z0-9._-]{3,60}$/.test(alias)) return falla('Revisa el alias: sólo letras, números, puntos o guiones.');
+    const modo = fijo() ? 'fijo' : 'rango';
+    const filas = $$('.fila-horario').map((f) => ({ dia: Number(f.dataset.dia), trabaja: $('.h-trabaja', f).checked, inicio: $('.h-ini', f).value, fin: $('.h-fin', f).value, horas_fijas: horasDe(f) }));
+    if (modo === 'fijo') {
+      const vacia = filas.find((h) => h.trabaja && !h.horas_fijas.length);
+      if (vacia) return falla(`Agrega al menos un horario para el ${DIAS[vacia.dia]}, o márcalo como día que no atiendes.`);
+    }
+    const mala = modo === 'rango' && filas.find((h) => h.trabaja && (!h.inicio || !h.fin || h.fin <= h.inicio));
     if (mala) return falla(`Revisa el horario del ${DIAS[mala.dia]}: la hora de fin tiene que ser posterior a la de inicio.`);
     const b = ev.currentTarget; b.disabled = true; b.textContent = 'Guardando…';
     try {
       const r = await sb.from('profesionales').update({ nombre, whatsapp: wa || null, instagram: ig || null, zona: $('#p-zona').value.trim() || null, color,
-        intervalo_min: Number($('#c-int').value), dias_reserva: Number($('#c-dias').value) }).eq('id', P.pro.id).select('*').single();
+        intervalo_min: Number($('#c-int').value), dias_reserva: Number($('#c-dias').value),
+        sena_pct: senaPct, alias_pago: alias || null, modo_horario: modo }).eq('id', P.pro.id).select('*').single();
       if (r.error) throw r.error;
       P.pro = r.data; aplicarColor(P.pro.color);
       for (const h of filas) {
-        const fila = { trabaja: h.trabaja };
+        const fila = { trabaja: h.trabaja, horas_fijas: h.horas_fijas };
         if (h.inicio && h.fin && h.fin > h.inicio) { fila.inicio = h.inicio; fila.fin = h.fin; }
         const r2 = await sb.from('pro_horarios').update(fila).eq('profesional_id', P.pro.id).eq('dia', h.dia);
         if (r2.error) throw r2.error;
@@ -778,14 +886,19 @@ async function vistaAjustes(param) {
   });
 }
 
+function chipsHoras(hs) {
+  return hs.length ? hs.map((t) => `<span class="chip-hora" data-h="${t}">${t}<button type="button" aria-label="Quitar ${t}">×</button></span>`).join('')
+    : '<span class="texto-suave">Sin horarios cargados</span>';
+}
+
 async function pintarServicios() {
   const ul = $('#lista-srv'); if (!ul) return;
   const { data, error } = await sb.from('pro_servicios').select('*').eq('profesional_id', P.pro.id).order('activo', { ascending: false }).order('created_at');
   if (!$('#lista-srv')) return;
   if (error) { ul.innerHTML = `<li class="vacio">${esc(mensajeError(error))}</li>`; return; }
   ul.innerHTML = data.length ? data.map((s) => `<li><button type="button" class="fila-servicio${s.activo ? '' : ' inactivo'}" data-id="${s.id}">
-      <span class="miniatura" aria-hidden="true">${iconoServicio(s.nombre)}</span>
-      <div class="fila-servicio-info"><strong>${esc(s.nombre)}</strong><small>${duracionTexto(s.duracion_min)}${s.activo ? '' : ' · <b>Oculto</b>'}</small></div>
+      <span class="miniatura${s.fotos?.length ? ' miniatura-foto' : ''}" aria-hidden="true">${s.fotos?.length ? `<img src="${esc(urlFoto(s.fotos[0]))}" alt="" loading="lazy">` : iconoServicio(s.nombre)}</span>
+      <div class="fila-servicio-info"><strong>${esc(s.nombre)}</strong><small>${s.es_extra ? '<b>Extra</b> · ' : ''}${duracionTexto(s.duracion_min)}${s.fotos?.length ? ` · ${s.fotos.length} ${s.fotos.length > 1 ? 'fotos' : 'foto'}` : ''}${s.activo ? '' : ' · <b>Oculto</b>'}</small></div>
       <span class="fila-servicio-precio${s.precio == null ? ' sin-precio' : ''}">${s.precio == null ? 'Sin precio' : pesos(s.precio)}</span>${icono('lapiz', 'editar')}</button></li>`).join('')
     : '<li class="vacio">Todavía no cargaste servicios. Agrega al menos uno para que tus clientas puedan reservar.</li>';
   $$('#lista-srv .fila-servicio').forEach((b) => b.onclick = () => editarServicio(data.find((s) => s.id === b.dataset.id)));
