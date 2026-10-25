@@ -1,0 +1,38 @@
+{
+  "name": "Agenda Nail · Mi panel",
+  "short_name": "Agenda Nail",
+  "description": "Tu agenda de turnos: pedidos, agenda, servicios, horarios y perfil.",
+  "lang": "es",
+  "start_url": "./panel.html#/pedidos",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fbeef2",
+  "theme_color": "#fbeef2",
+  "icons": [
+    {
+      "src": "icons/icono-pro.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icono-pro-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icono-pro-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icono-pro-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

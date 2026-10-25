@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Reserva tu turno</title>
+  <meta name="description" content="Reserva tu turno de uñas online.">
+  <meta name="theme-color" content="#fbeef2">
+  <link rel="icon" href="../icons/icono-pro.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../icons/icono-pro-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;1,500&family=Jost:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../css/estilos.css?v=p2">
+</head>
+<body class="pagina-reservas">
+  <main id="app" class="contenido contenido-reservas" tabindex="-1">
+    <div class="cargando"><span class="spinner" aria-hidden="true"></span> Cargando…</div>
+  </main>
+
+  <div id="barra" class="barra-reserva" hidden>
+    <div class="barra-in">
+      <div id="resumen" class="barra-resumen"></div>
+      <button id="btn-reservar" class="btn btn-primario btn-grande" disabled>Elige un horario</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <noscript><p class="noscript">Para reservar necesitas tener JavaScript activado.</p></noscript>
+  <script type="module" src="../js/reservar.js?v=p2"></script>
+</body>
+</html>

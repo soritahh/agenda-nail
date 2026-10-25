@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Agenda Nail">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f05aa0"/><stop offset="1" stop-color="#c92a73"/></linearGradient></defs>
+<rect width="512" height="512" fill="#fbe7ee"/>
+<circle cx="256" cy="256" r="196" fill="#fff" fill-opacity=".75"/>
+<rect x="222" y="104" width="68" height="92" rx="14" fill="#6e1f47"/>
+<path d="M196 200h120l26 52v126a42 42 0 0 1-42 42h-88a42 42 0 0 1-42-42V252z" fill="url(#g)"/>
+<path d="M200 296h112" stroke="#fff" stroke-opacity=".55" stroke-width="10" stroke-linecap="round"/>
+<path d="M330 150c3 22 18 37 40 40-22 3-37 18-40 40-3-22-18-37-40-40 22-3 37-18 40-40z" fill="#c8a15a"/>
+</svg>

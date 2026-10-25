@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Agenda Nail · Tu agenda de turnos online</title>
+  <meta name="description" content="Agenda de turnos online para manicuristas: tus clientas reservan desde tu link y tú confirmas.">
+  <meta name="theme-color" content="#fbeef2">
+  <link rel="manifest" href="manifest-panel.json">
+  <link rel="icon" href="icons/icono-pro.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icono-pro-192.png">
+  <script>
+    // Compatibilidad: /pro/?m=slug lleva directo a la página de reservas.
+    (function () { var m = new URLSearchParams(location.search).get('m'); if (m) location.replace('r/?m=' + encodeURIComponent(m)); })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;1,500&family=Jost:wght@400;500&display=swap">
+  <link rel="stylesheet" href="css/estilos.css?v=p2">
+</head>
+<body class="pagina-reservas">
+  <main class="contenido contenido-reservas landing">
+    <header class="perfil">
+      <img class="logo" src="icons/icono-pro.svg" alt="" width="104" height="104">
+      <h1>Agenda Nail</h1>
+      <p class="perfil-zona">Tu agenda de turnos online</p>
+    </header>
+    <section class="tarjeta">
+      <ul class="landing-lista">
+        <li><b>Tu propio link</b> para compartir en Instagram y WhatsApp.</li>
+        <li><b>Tus clientas reservan</b> eligiendo servicio, día y horario libre.</li>
+        <li><b>Tú confirmas</b> cada pedido y le avisas por WhatsApp con un toque.</li>
+        <li><b>Con tu logo y tu color</b>, tus servicios y tus horarios.</li>
+      </ul>
+    </section>
+    <div class="acciones-columna">
+      <a class="btn btn-primario btn-grande" href="panel.html?registro">Crear mi agenda</a>
+      <a class="btn btn-secundario btn-grande" href="panel.html">Ya tengo cuenta</a>
+    </div>
+    <p class="pie">Hecho con cariño para manicuristas ✦</p>
+  </main>
+</body>
+</html>
