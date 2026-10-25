@@ -1,25 +1,47 @@
-// Panel de cada manicurista (versión PRO): registro, agenda del día, próximos, turno manual y ajustes.
+// Panel de cada manicurista (versión PRO): acceso con PIN, agenda del día, próximos, turno manual y ajustes.
 import {
   sb, $, $$, esc, pesos, precioTexto, icono, iconoServicio, parsePesos, pesosInput, hoyAR, sumarDias, parseFecha, fechaISO, diaSemana, DIAS, MESES,
   fechaLarga, fechaCorta, fechaRelativa, capitalizar, duracionTexto, hora5, linkWhatsApp, toast, confirmar, abrirHoja,
   mensajeError, registrarSW, logoHTML, aplicarColor, COLOR_BASE, horariosLibres, normalizarTelefono,
   DEMO, bannerDemo, reiniciarDemo,
-} from './comun.js?v=p3';
+} from './comun.js?v=p4';
 import { BUCKET_LOGOS } from './config.js';
 
 const acceso = $('#acceso'), app = $('#app'), main = $('#contenido');
 const P = { pro: null, user: null, mesAgenda: hoyAR().slice(0, 7), diaAgenda: hoyAR() };
 const ESTADOS = { pendiente: 'Por confirmar', aprobado: 'Confirmado', rechazado: 'Rechazado', cancelado: 'Cancelado' };
 
-// ---------------- Acceso ----------------
+// ---------------- Acceso (nombre de la agenda + PIN de 6 dígitos) ----------------
+// Cada agenda tiene un usuario de Supabase Auth con correo sintético <slug>@pin.agenda-nail.invalid y el PIN como
+// contraseña. Lo crea / cambia Agustin desde su página de gestión (Edge Function 'admin-pin'). Nunca se envían correos.
+const DOMINIO_PIN = 'pin.agenda-nail.invalid';
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$/;
-// Los links de confirmación / recuperación de los correos vuelven siempre al panel publicado.
-const URL_PANEL = 'https://soritahh.github.io/agenda-nail/pro/panel.html';
+const CLAVE_ULTIMA = 'agenda-nail-pro-ultima-agenda';
+const CLAVE_INTENTOS = 'agenda-nail-pro-intentos';
+const MAX_INTENTOS = 5;
 const linkPublico = (slug) => new URL(`r/?m=${encodeURIComponent(slug)}`, location.href.split('#')[0]).href;
-const aSlug = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-').slice(0, 30).replace(/-+$/, '');
 
-function pantallaAcceso(html, { titulo = '¡Bienvenida!', sub = 'Tu agenda de turnos online', pie = true } = {}) {
+/** Acepta "sofi-nails", "@Sofi-Nails " o el link completo de reservas (…/r/?m=sofi-nails). */
+function leerSlug(t) {
+  let v = String(t || '').trim();
+  const m = v.match(/[?&]m=([^&#\s]+)/);
+  if (m) v = decodeURIComponent(m[1]);
+  return v.replace(/^@/, '').toLowerCase();
+}
+
+// Freno local tras varios PIN incorrectos (el límite real lo pone Supabase Auth por IP).
+function leerIntentos() {
+  try { return JSON.parse(localStorage.getItem(CLAVE_INTENTOS)) || { n: 0, hasta: 0 }; } catch { return { n: 0, hasta: 0 }; }
+}
+function anotarFallo() {
+  const i = leerIntentos(); i.n += 1;
+  if (i.n >= MAX_INTENTOS) i.hasta = Date.now() + Math.min(60_000 * 2 ** (i.n - MAX_INTENTOS), 15 * 60_000);
+  try { localStorage.setItem(CLAVE_INTENTOS, JSON.stringify(i)); } catch { /* sin almacenamiento */ }
+  return i;
+}
+function limpiarIntentos() { try { localStorage.removeItem(CLAVE_INTENTOS); } catch { /* nada */ } }
+
+function pantallaAcceso(html, { titulo = '¡Hola!', sub = 'Tu agenda de turnos online', pie = true } = {}) {
   app.hidden = true; acceso.hidden = false; aplicarColor(null);
   acceso.innerHTML = `<div class="splash-contenido">
     <img src="icons/icono-pro.svg" alt="" class="logo" width="112" height="112">
@@ -29,162 +51,86 @@ function pantallaAcceso(html, { titulo = '¡Bienvenida!', sub = 'Tu agenda de tu
     ${pie ? '<p class="splash-pie"><a href="./">¿Qué es Agenda Nail?</a></p>' : ''}</div>`;
 }
 
-/** Campos nombre + link, con chequeo de disponibilidad. Devuelve () => {nombre, slug} | null */
-function camposAgenda(prefijo, { nombre = '', slug = '' } = {}) {
-  return `<div class="campo"><label for="${prefijo}-nombre">Nombre de tu marca</label>
-      <input id="${prefijo}-nombre" maxlength="60" required value="${esc(nombre)}" placeholder="Ej.: Sofi Nails"></div>
-    <div class="campo"><label for="${prefijo}-slug">Tu link</label>
-      <div class="input-slug"><span>…/r/?m=</span><input id="${prefijo}-slug" maxlength="30" required autocapitalize="none" autocomplete="off" spellcheck="false" value="${esc(slug)}" placeholder="sofi-nails"></div>
-      <p class="ayuda" id="${prefijo}-slug-ayuda">Minúsculas, números y guiones. Es el link que vas a compartir.</p></div>`;
-}
-function enlazarCamposAgenda(prefijo) {
-  const n = $(`#${prefijo}-nombre`), sl = $(`#${prefijo}-slug`), ay = $(`#${prefijo}-slug-ayuda`);
-  let tocado = !!sl.value, t = 0;
-  const revisar = () => {
-    clearTimeout(t);
-    const v = sl.value;
-    if (!v) { ay.textContent = 'Minúsculas, números y guiones. Es el link que vas a compartir.'; ay.className = 'ayuda'; return; }
-    if (!SLUG_RE.test(v) || v.includes('--')) { ay.textContent = 'Usa de 3 a 30 letras minúsculas, números o guiones (sin empezar ni terminar con guion).'; ay.className = 'ayuda ayuda-error'; return; }
-    ay.textContent = 'Revisando…'; ay.className = 'ayuda';
-    t = setTimeout(async () => {
-      const { data, error } = await sb.rpc('pro_slug_disponible', { p_slug: v });
-      if (sl.value !== v) return;
-      if (error) { ay.textContent = ''; return; }
-      ay.textContent = data ? '✓ Disponible' : 'Ese link ya está en uso o no se puede usar. Prueba con otro.';
-      ay.className = data ? 'ayuda ayuda-ok' : 'ayuda ayuda-error';
-    }, 350);
-  };
-  n.addEventListener('input', () => { if (!tocado) { sl.value = aSlug(n.value); revisar(); } });
-  sl.addEventListener('input', () => { tocado = true; const v = aSlug(sl.value.replace(/\s/g, '-')); if (v !== sl.value && !sl.value.endsWith('-')) sl.value = v; revisar(); });
-  if (sl.value) revisar();
-  return () => {
-    const nombre = n.value.trim(), slug = sl.value.trim().replace(/-+$/, '');
-    if (!nombre) return { error: 'Escribe el nombre de tu marca.' };
-    if (!SLUG_RE.test(slug) || slug.includes('--')) return { error: 'Revisa tu link: de 3 a 30 letras minúsculas, números o guiones.' };
-    return { nombre, slug };
-  };
-}
-
-function formCuenta({ modo }) {
-  const registro = modo === 'registro';
+function formPin() {
+  let ultima = ''; try { ultima = localStorage.getItem(CLAVE_ULTIMA) || ''; } catch { /* nada */ }
   pantallaAcceso(`
-    <h2 class="acceso-titulo">${registro ? 'Crea tu agenda' : 'Ingresar'}</h2>
-    <p class="acceso-sub">${registro ? 'Regístrate gratis. Revisamos tu cuenta y te avisamos cuando tu agenda esté activa.' : 'Entra para ver y confirmar tus turnos.'}</p>
-    <form id="f-acceso" novalidate>
-      ${registro ? camposAgenda('r') : ''}
-      <div class="campo"><label for="a-email">Correo electrónico</label>
-        <input id="a-email" type="email" autocomplete="email" required maxlength="120" placeholder="tu@correo.com"></div>
-      <div class="campo"><label for="a-pass">Contraseña</label>
-        <input id="a-pass" type="password" autocomplete="${registro ? 'new-password' : 'current-password'}" required minlength="8" maxlength="72" placeholder="${registro ? 'Mínimo 8 caracteres' : ''}"></div>
-      ${registro ? `<div class="campo"><label for="a-pass2">Repite la contraseña</label>
-        <input id="a-pass2" type="password" autocomplete="new-password" required minlength="8" maxlength="72"></div>` : ''}
+    <h2 class="acceso-titulo">Entrar a tu agenda</h2>
+    <p class="acceso-sub">Con el nombre de tu agenda y tu PIN de 6 números.</p>
+    <form id="f-pin" novalidate>
+      <div class="campo"><label for="a-slug">Tu agenda</label>
+        <input id="a-slug" maxlength="300" required autocapitalize="none" autocomplete="username" spellcheck="false" value="${esc(ultima)}" placeholder="ej.: sofi-nails">
+        <p class="ayuda">Es lo que va después de <b>?m=</b> en tu link de reservas.</p></div>
+      <div class="campo"><label for="a-pin">PIN</label>
+        <input id="a-pin" class="input-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" required autocomplete="current-password" placeholder="••••••"></div>
       <p id="a-error" class="form-error-general" role="alert" hidden></p>
-      <button class="btn btn-primario btn-grande" type="submit">${registro ? 'Crear mi cuenta' : 'Ingresar'}</button>
+      <button class="btn btn-primario btn-grande" type="submit" id="a-entrar">Entrar</button>
     </form>
     <div class="separador" aria-hidden="true">✦</div>
-    ${registro ? '<button class="btn-chico" id="a-cambiar">Ya tengo cuenta, quiero ingresar</button>'
-    : '<button class="btn-chico" id="a-olvide">Olvidé mi contraseña</button><button class="btn-chico" id="a-cambiar">Todavía no tengo cuenta, quiero registrarme</button>'}`,
-  { titulo: registro ? 'Tu agenda de turnos' : '¡Hola de nuevo!' });
-  const datosAgenda = registro ? enlazarCamposAgenda('r') : null;
-  const err = (m) => { const e = $('#a-error'); e.textContent = m; e.hidden = !m; };
-  $('#a-cambiar')?.addEventListener('click', () => formCuenta({ modo: registro ? 'login' : 'registro' }));
-  $('#a-olvide')?.addEventListener('click', olvideContrasena);
-  $('#f-acceso').addEventListener('submit', async (ev) => {
+    <p class="texto-suave acceso-olvide">¿Olvidaste tu PIN? Escríbele a Agustin y te da uno nuevo.</p>`,
+  { titulo: '¡Hola de nuevo!' });
+  const fSlug = $('#a-slug'), fPin = $('#a-pin'), bEntrar = $('#a-entrar'), e = $('#a-error');
+  const err = (m) => { e.textContent = m; e.hidden = !m; };
+  (ultima ? fPin : fSlug).focus();
+  let reloj = 0;
+  const frenar = () => {
+    clearInterval(reloj);
+    const tick = () => {
+      const falta = Math.ceil((leerIntentos().hasta - Date.now()) / 1000);
+      if (falta <= 0) { clearInterval(reloj); bEntrar.disabled = false; bEntrar.textContent = 'Entrar'; return; }
+      bEntrar.disabled = true;
+      bEntrar.textContent = `Espera ${falta >= 60 ? `${Math.floor(falta / 60)}:${String(falta % 60).padStart(2, '0')}` : `${falta} s`}`;
+    };
+    tick(); reloj = setInterval(tick, 1000);
+  };
+  if (leerIntentos().hasta > Date.now()) { err('Hubo varios PIN incorrectos. Espera un momento antes de probar de nuevo.'); frenar(); }
+  fPin.addEventListener('input', () => {
+    const v = fPin.value.replace(/\D/g, '').slice(0, 6);
+    if (v !== fPin.value) fPin.value = v;
+    if (v.length === 6 && fSlug.value.trim() && !bEntrar.disabled) $('#f-pin').requestSubmit();
+  });
+  $('#f-pin').addEventListener('submit', async (ev) => {
     ev.preventDefault(); err('');
-    const email = $('#a-email').value.trim(), pass = $('#a-pass').value;
-    let agenda = null;
-    if (registro) { agenda = datosAgenda(); if (agenda.error) return err(agenda.error); }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('Escribe un correo válido.');
-    if (pass.length < 8) return err('La contraseña debe tener al menos 8 caracteres.');
-    if (registro && pass !== $('#a-pass2').value) return err('Las contraseñas no coinciden.');
-    const b = ev.submitter || $('#f-acceso button[type=submit]'); b.disabled = true;
+    if (leerIntentos().hasta > Date.now()) return frenar();
+    const slug = leerSlug(fSlug.value), pin = fPin.value;
+    if (!SLUG_RE.test(slug) || slug.includes('--')) return err('Escribe el nombre de tu agenda (minúsculas, números y guiones, como en tu link).');
+    if (!/^\d{6}$/.test(pin)) return err('El PIN tiene 6 números.');
+    bEntrar.disabled = true;
     try {
-      if (registro) {
-        const { data: libre } = await sb.rpc('pro_slug_disponible', { p_slug: agenda.slug });
-        if (libre === false) throw new Error('SLUG_EN_USO');
-        const { data, error } = await sb.auth.signUp({ email, password: pass,
-          options: { emailRedirectTo: URL_PANEL, data: { pro_nombre: agenda.nombre, pro_slug: agenda.slug } } });
-        if (error) throw error;
-        if (!data.session) {
-          pantallaAcceso(`<h2 class="acceso-titulo">Revisa tu correo</h2>
-            <p>Te enviamos un enlace a <b>${esc(email)}</b> para confirmar tu cuenta. Ábrelo y después vuelve a esta página para entrar.</p>
-            <p class="texto-suave">Si no lo ves, busca en la carpeta de spam o promociones.</p>
-            <button class="btn btn-primario btn-grande" id="a-ir-login">Ya confirmé, quiero ingresar</button>`);
-          $('#a-ir-login').onclick = () => formCuenta({ modo: 'login' });
-          return;
-        }
-      } else {
-        const { error } = await sb.auth.signInWithPassword({ email, password: pass });
-        if (error) throw error;
-      }
+      const { error } = await sb.auth.signInWithPassword({ email: `${slug}@${DOMINIO_PIN}`, password: pin });
+      if (error) throw error;
+      limpiarIntentos();
+      try { localStorage.setItem(CLAVE_ULTIMA, slug); } catch { /* nada */ }
       await entrar();
-    } catch (e) {
-      const m = String(e?.message || '');
-      if (/Invalid login credentials/i.test(m)) err('Correo o contraseña incorrectos.');
-      else if (/Email not confirmed/i.test(m)) err('Todavía no confirmaste tu correo. Revisa tu bandeja de entrada.');
-      else if (/already registered|already been registered/i.test(m)) err('Ese correo ya tiene cuenta. Entra con tu contraseña.');
-      else if (/rate limit/i.test(m)) err('Demasiados intentos. Espera unos minutos e intenta de nuevo.');
-      else if (/SLUG_/.test(m)) err(mensajeError(e));
-      else if (/weak|password/i.test(m)) err('La contraseña es muy débil. Usa una más larga o con números.');
-      else err(mensajeError(e));
-    } finally { b.disabled = false; }
+    } catch (x) {
+      const m = String(x?.message || ''), st = x?.status;
+      fPin.value = '';
+      if (/Invalid login credentials/i.test(m) || st === 400) {
+        const i = anotarFallo();
+        if (i.hasta > Date.now()) { err('Agenda o PIN incorrectos. Por seguridad, espera un momento antes de probar de nuevo.'); return frenar(); }
+        const quedan = MAX_INTENTOS - i.n;
+        err(`Agenda o PIN incorrectos.${quedan <= 2 ? (quedan === 1 ? ' Te queda 1 intento antes de una pausa.' : ` Te quedan ${quedan} intentos antes de una pausa.`) : ' Revisa e intenta de nuevo.'}`);
+        fPin.focus();
+      } else if (/rate limit|too many/i.test(m) || st === 429) err('Demasiados intentos. Espera unos minutos e intenta de nuevo.');
+      else err(mensajeError(x));
+    } finally { if (!(leerIntentos().hasta > Date.now())) bEntrar.disabled = false; }
   });
 }
 
-async function olvideContrasena() {
-  const email = ($('#a-email')?.value || '').trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('Escribe tu correo arriba y vuelve a tocar “Olvidé mi contraseña”.', 'aviso'); return; }
-  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: URL_PANEL });
-  if (error) toast(mensajeError(error), 'error');
-  else toast('Si el correo tiene cuenta, te llegará un enlace para cambiar la contraseña.');
-}
-
-function formNuevaContrasena() {
-  pantallaAcceso(`<h2 class="acceso-titulo">Nueva contraseña</h2>
-    <form id="f-nueva" novalidate>
-      <div class="campo"><label for="n-pass">Contraseña nueva</label><input id="n-pass" type="password" autocomplete="new-password" minlength="8" maxlength="72" required></div>
-      <button class="btn btn-primario btn-grande" type="submit">Guardar</button></form>`);
-  $('#f-nueva').addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const p = $('#n-pass').value;
-    if (p.length < 8) return toast('Mínimo 8 caracteres.', 'error');
-    const { error } = await sb.auth.updateUser({ password: p });
-    if (error) return toast(mensajeError(error), 'error');
-    toast('Contraseña actualizada.'); entrar();
-  });
-}
-
-/** La cuenta existe pero todavía no tiene agenda (p. ej. el link elegido ya se usó). */
-function formCompletarRegistro(user, aviso = '') {
-  const md = user?.user_metadata || {};
-  pantallaAcceso(`<h2 class="acceso-titulo">Completa tu registro</h2>
-    <p class="acceso-sub">Elige el nombre de tu marca y tu link.</p>
-    <form id="f-completar" novalidate>${camposAgenda('c', { nombre: md.pro_nombre || '', slug: md.pro_slug || '' })}
-      <p id="c-error" class="form-error-general" role="alert"${aviso ? '' : ' hidden'}>${esc(aviso)}</p>
-      <button class="btn btn-primario btn-grande" type="submit">Crear mi agenda</button></form>
-    <div class="separador" aria-hidden="true">✦</div><button class="btn-chico" id="a-salir">Salir</button>`, { pie: false });
-  const datos = enlazarCamposAgenda('c');
+function pantallaSinAgenda() {
+  pantallaAcceso(`<h2 class="acceso-titulo">Este acceso no tiene agenda</h2>
+    <p>Pídele a Agustin un PIN nuevo para tu agenda.</p>
+    <button class="btn btn-primario btn-grande" id="a-salir">Volver</button>`, { pie: false });
   $('#a-salir').onclick = salir;
-  $('#f-completar').addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const e = $('#c-error'), d = datos();
-    if (d.error) { e.textContent = d.error; e.hidden = false; return; }
-    ev.submitter.disabled = true;
-    const { error } = await sb.rpc('pro_registrar', { p_nombre: d.nombre, p_slug: d.slug });
-    ev.submitter.disabled = false;
-    if (error) { e.textContent = mensajeError(error); e.hidden = false; return; }
-    entrar();
-  });
 }
 
-function pantallaEstado(estado, email) {
+function pantallaEstado(estado) {
   const pendiente = estado === 'pendiente';
-  pantallaAcceso(`<h2 class="acceso-titulo">${pendiente ? '¡Gracias por registrarte!' : 'Tu agenda está pausada'}</h2>
-    <p>${pendiente ? 'Tu cuenta está en revisión, te avisamos cuando esté activa.' : 'Por ahora tu agenda no recibe reservas. Escríbenos para reactivarla.'}</p>
-    <p class="texto-suave">Cuenta: ${esc(email || '')}</p>
+  pantallaAcceso(`<h2 class="acceso-titulo">${pendiente ? 'Tu agenda todavía no está activa' : 'Tu agenda está pausada'}</h2>
+    <p>${pendiente ? 'Agustin la está terminando de preparar. Prueba de nuevo en un rato.' : 'Por ahora tu agenda no recibe reservas. Escríbele a Agustin para reactivarla.'}</p>
+    <p class="texto-suave">Agenda: ${esc(P.pro?.slug || '')}</p>
     <button class="btn btn-primario btn-grande" id="a-recargar">Actualizar</button>
     <div class="separador" aria-hidden="true">✦</div><button class="btn-chico" id="a-salir">Salir</button>`,
-  { titulo: P.pro?.nombre || '¡Gracias!', sub: pendiente ? 'Ya casi está lista' : 'Agenda en pausa', pie: false });
+  { titulo: P.pro?.nombre || 'Agenda Nail', sub: pendiente ? 'Ya casi está lista' : 'Agenda en pausa', pie: false });
   $('#a-salir').onclick = salir;
   $('#a-recargar').onclick = entrar;
 }
@@ -198,27 +144,19 @@ async function cargarPerfil(userId) {
 
 async function entrar() {
   const { data: { user } } = await sb.auth.getUser();
-  if (!user) return formCuenta({ modo: 'login' });
+  if (!user) return formPin();
   P.user = user;
   try {
-    let pro = await cargarPerfil(user.id);
-    if (!pro) {
-      const md = user.user_metadata || {};
-      if (!md.pro_nombre || !md.pro_slug) return formCompletarRegistro(user);
-      const { error } = await sb.rpc('pro_registrar', { p_nombre: md.pro_nombre, p_slug: md.pro_slug });
-      if (error) return formCompletarRegistro(user, mensajeError(error));
-      pro = await cargarPerfil(user.id);
-      if (!pro) return formCompletarRegistro(user);
-    }
-    if (pro.estado !== 'activa') return pantallaEstado(pro.estado, user.email);
+    const pro = await cargarPerfil(user.id);
+    if (!pro) return pantallaSinAgenda();
+    if (pro.estado !== 'activa') return pantallaEstado(pro.estado);
   } catch (e) {
     toast(mensajeError(e), 'error');
-    return formCuenta({ modo: 'login' });
+    return formPin();
   }
   acceso.hidden = true; app.hidden = false;
   bannerDemo({ enlace: 'r/?m=demo', texto: 'Ver página de reservas' });
   aplicarColor(P.pro.color);
-  if (/access_token|error_description/.test(location.hash)) history.replaceState(null, '', location.pathname + '#/agenda');
   actualizarBadge();
   router();
 }
@@ -226,14 +164,14 @@ async function entrar() {
 async function salir() {
   await sb.auth.signOut();
   P.pro = null; P.user = null;
-  history.replaceState(null, '', location.pathname);
+  history.replaceState(null, '', location.pathname + (DEMO ? location.search : ''));
   iniciarAcceso();
 }
 
 async function iniciarAcceso() {
   const { data: { session } } = await sb.auth.getSession();
   if (session) return entrar();
-  formCuenta({ modo: new URLSearchParams(location.search).has('registro') ? 'registro' : 'login' });
+  formPin();
 }
 
 // ---------------- Datos ----------------
@@ -613,8 +551,8 @@ async function vistaAjustes(param) {
     </section>
     <section class="tarjeta">
       <div class="tarjeta-titulo"><h2>Tu cuenta</h2></div>
-      ${DEMO ? `<p class="texto-suave">Estás viendo la demo: los cambios se guardan solo en este dispositivo.</p>
-      <button type="button" class="btn btn-texto-peligro" id="cerrar-sesion">Reiniciar demo</button>` : `<p class="texto-suave">Sesión: ${esc(P.user?.email || '')}</p>
+      ${DEMO ? `<p class="texto-suave">Estás viendo la demo: los cambios se guardan solo en este dispositivo. En la demo no hace falta PIN; tu agenda real se abre con su nombre y un PIN de 6 números.</p>
+      <button type="button" class="btn btn-texto-peligro" id="cerrar-sesion">Reiniciar demo</button>` : `<p class="texto-suave">Entras con tu agenda <b>${esc(P.pro?.slug || '')}</b> y tu PIN. Para cambiar el PIN, pídeselo a Agustin.</p>
       <button type="button" class="btn btn-texto-peligro" id="cerrar-sesion">Cerrar sesión</button>`}
     </section>
     <p class="pie">Agenda Nail · ${esc(c.nombre)}</p>`;
@@ -623,7 +561,7 @@ async function vistaAjustes(param) {
   $('#p-compartir').onclick = () => compartirLink(link);
   $('#nuevo-srv').onclick = () => editarServicio(null);
   if (DEMO) $('#cerrar-sesion').onclick = async () => { if (await confirmar({ titulo: '¿Reiniciar la demo?', texto: 'Se borran los turnos y cambios de prueba de este dispositivo.', si: 'Reiniciar', peligro: true })) { reiniciarDemo(); location.reload(); } };
-  else $('#cerrar-sesion').onclick = async () => { if (await confirmar({ titulo: '¿Cerrar sesión?', texto: 'Vas a tener que ingresar de nuevo con tu correo y contraseña.', si: 'Cerrar sesión' })) salir(); };
+  else $('#cerrar-sesion').onclick = async () => { if (await confirmar({ titulo: '¿Cerrar sesión?', texto: 'Para volver a entrar vas a necesitar el nombre de tu agenda y tu PIN.', si: 'Cerrar sesión' })) salir(); };
 
   // Color (vista previa en vivo; se guarda con "Guardar ajustes")
   let color = c.color || null;
@@ -754,10 +692,6 @@ function router() {
 }
 window.addEventListener('hashchange', router);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !app.hidden) actualizarBadge(); });
-
-sb.auth.onAuthStateChange((evento) => {
-  if (evento === 'PASSWORD_RECOVERY') setTimeout(formNuevaContrasena, 0);
-});
 
 registrarSW();
 iniciarAcceso();

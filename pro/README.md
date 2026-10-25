@@ -10,9 +10,9 @@ Esta versión vive en la carpeta `pro/` del repositorio y **no toca** la agenda 
 
 ## Cómo es para la manicurista
 
-1. Entra al panel y se registra con su correo, una contraseña, el nombre de su marca y el link que quiere (por ejemplo `mi-marca`).
-2. La cuenta queda **en revisión**: ve "Tu cuenta está en revisión, te avisamos cuando esté activa". Su página de reservas muestra "Agenda no disponible por ahora".
-3. Cuando la cuenta está activa, el panel tiene cuatro pestañas:
+1. No hay registro público. Un superadmin crea la agenda (link, marca, WhatsApp, Instagram, zona y estado) y le da un **PIN de 6 números**.
+2. Para entrar al panel escribe el nombre de su agenda (lo que va después de `?m=` en su link, por ejemplo `mi-marca`) y su PIN. **No usa correo.** Si olvida el PIN, se lo pide a Agustin, que le crea uno nuevo.
+3. Con la agenda activa, el panel tiene cuatro pestañas:
    - **Agenda**: el día elegido, con flechas para cambiar de día, una tira de días con la cantidad de turnos de cada uno (o "cerrado"), un aviso si hay pedidos por confirmar, dos contadores (turnos del día y por confirmar), la lista de turnos y un botón *Agregar turno este día*.
    - **Próximos**: los turnos de hoy en adelante, con filtros *Activos*, *Por confirmar*, *Confirmados*, *Cancelados* y *Todos*. Cada pedido tiene *Confirmar*, *Rechazar* (con confirmación) y *WhatsApp*, que abre un chat con un mensaje ya escrito. **El mensaje no se envía solo.** Un turno confirmado se puede cancelar (con confirmación).
    - **Nuevo**: para cargar a mano un turno de una clienta que escribió, llamó o vino sin turno. Muestra los horarios libres del día y deja elegir el estado (*Confirmado* o *Por confirmar*). El WhatsApp de la clienta es opcional.
@@ -33,6 +33,8 @@ El precio de un servicio es opcional. Si queda vacío, la clienta ve "Consultar 
   - bucket público `pro-logos` (solo imágenes, hasta 2 MB). Cada manicurista solo puede escribir en su carpeta `<id de la manicurista>/`;
   - carga a Katia Ferrero Nails (`katia`, activa, sin cuenta asignada).
 - `0004_admin_clientas.sql`: tabla `admin_clientas` (ficha comercial de cada clienta), que solo leen y editan los superadmins.
+- `0006_pro_acceso_pin.sql`: entrada con PIN. Quita el registro público (`pro_registrar` ya no se puede llamar desde la web), agrega `pro_admin_crear_agenda` (solo superadmins) y dos funciones internas que solo puede usar la Edge Function.
+- `supabase/functions/admin-pin`: Edge Function que crea o cambia el PIN. Comprueba que quien llama es superadmin (si no, responde 403), rechaza PIN fáciles (`000000`, `123456`, `121212`…) y crea la cuenta de la manicurista con un correo interno que no existe (`<slug>@pin.agenda-nail.invalid`) y el PIN como contraseña. Nunca se manda un correo. Al cambiar el PIN se cierran las sesiones abiertas. La clave de servicio solo vive en las variables de la función, no en el repositorio.
 - `0005_pro_turno_manual.sql`: el teléfono del turno pasa a ser opcional y se agrega la función `pro_turno_manual` para la pestaña *Nuevo*. Solo la usa una manicurista activa sobre sus propios servicios y valida la fecha, la hora y que no se superponga con otro turno.
 
 ## Superadmin
@@ -46,23 +48,15 @@ select id from auth.users where email = 'correo@ejemplo.com';
 
 Para quitarlo: `delete from public.superadmins where user_id = (select id from auth.users where email = 'correo@ejemplo.com');`
 
-## Asignar la agenda de Katia a su cuenta
+## Darle acceso a Katia
 
-La agenda `katia` existe y está activa, pero no tiene dueña. Para que Katia la maneje desde el panel:
+La agenda `katia` existe y está activa, pero todavía no tiene PIN. Un superadmin le crea uno desde su página de gestión (*Agendas → Crear PIN*). Después Katia entra al panel con `katia` y ese PIN.
 
-1. Katia crea su cuenta en el panel (con cualquier link libre, por ejemplo `katia-ferrero`). Queda una cuenta en revisión, vacía.
-2. Un superadmin le asigna la agenda `katia` a ese correo desde su página de gestión (opción *Asignar cuenta*). Si la cuenta tenía una agenda en revisión sin turnos, esa agenda vacía se borra.
+## Contra los intentos al azar
 
-También se puede hacer desde el editor SQL de Supabase:
-
-```sql
-delete from public.profesionales
-where user_id = (select id from auth.users where email = 'correo-de-katia@ejemplo.com')
-  and slug <> 'katia' and estado = 'pendiente';
-update public.profesionales
-set user_id = (select id from auth.users where email = 'correo-de-katia@ejemplo.com')
-where slug = 'katia';
-```
+- Supabase Auth limita los intentos de inicio de sesión por IP (*Authentication → Rate Limits*).
+- El panel pide una pausa en ese dispositivo después de 5 intentos fallidos (1 minuto, que se duplica hasta 15 minutos). Esta pausa ayuda, pero se puede saltar cambiando de navegador: la protección real es la de Supabase.
+- Un PIN de 6 números tiene un millón de combinaciones, y no se aceptan los fáciles de adivinar.
 
 ## Demo para mostrar
 
@@ -81,11 +75,7 @@ python3 -m http.server 8080
 
 Abre `http://localhost:8080/pro/`. La copia local usa la misma base de Supabase que el sitio publicado.
 
-## Configuración pendiente en Supabase
+## Configuración opcional en Supabase
 
-- **Correo (Authentication → SMTP Settings)**: el servidor de correo por defecto de Supabase tiene un límite muy bajo. Durante las pruebas, el registro devolvió "Demasiados intentos" (error 429). Configura un SMTP propio antes de abrir el registro a muchas manicuristas.
-- **Authentication → URL Configuration** (sin esto, los enlaces de los correos siguen yendo a `localhost`):
-  - *Site URL*: `https://soritahh.github.io/agenda-nail/panel.html`
-  - *Redirect URLs*: agrega `https://soritahh.github.io/agenda-nail/panel.html` y `https://soritahh.github.io/agenda-nail/pro/panel.html`.
-  El código ya manda esas direcciones en `emailRedirectTo` / `redirectTo`, pero Supabase sólo las usa si están en esa lista.
-- **Authentication → Attack Protection**: activa la protección contra contraseñas filtradas.
+- **Authentication → Rate Limits**: revisa el límite de inicios de sesión por IP si quieres que sea más estricto.
+- Las manicuristas ya no usan correo. El SMTP y las *Redirect URLs* solo importan para la agenda original de la raíz.

@@ -1,7 +1,7 @@
 // Utilidades compartidas por la página de reservas y el panel.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm';
 import { SUPABASE_URL, SUPABASE_KEY, ZONA, BUCKET_LOGOS } from './config.js';
-import { DEMO, DEMO_AVISO, crearClienteDemo, logoDemo, reiniciarDemo } from './demo.js?v=p3';
+import { DEMO, DEMO_AVISO, crearClienteDemo, logoDemo, reiniciarDemo } from './demo.js?v=p4';
 
 export { DEMO, DEMO_AVISO, reiniciarDemo };
 // En modo demo (r/?m=demo, panel.html?demo=1) todo vive en este dispositivo: no se toca la base real.

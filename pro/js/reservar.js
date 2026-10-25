@@ -3,7 +3,7 @@ import {
   sb, $, $$, esc, precioTexto, icono, iconoServicio, hoyAR, sumarDias, diaSemana, DIAS_CORTOS, fechaLarga, capitalizar, fechaRelativa,
   duracionTexto, horariosLibres, aMin, normalizarTelefono, linkWhatsApp, toast, mensajeError, registrarSW, hora5,
   logoHTML, aplicarColor, DEMO, bannerDemo,
-} from './comun.js?v=p3';
+} from './comun.js?v=p4';
 
 const S = { config: null, horarios: [], servicios: [], ocupados: [], listo: false, servicio: null, fecha: null, hora: null, enviando: false };
 const app = $('#app'), barra = $('#barra'), btn = $('#btn-reservar');

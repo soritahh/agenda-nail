@@ -512,3 +512,10 @@ textarea { resize: vertical; min-height: 84px; }
 .banner-demo a { color: #ffd3e8; font-weight: 600; text-decoration: underline; }
 .banner-demo button { background: transparent; border: 1px solid rgba(255,255,255,0.45); color: #fff; border-radius: 999px; padding: 2px 10px; font: inherit; cursor: pointer; }
 .etiqueta-demo { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: #fde3ef; color: var(--plum, #4a1d36); font-family: var(--sans, sans-serif); font-size: 0.7rem; font-weight: 600; vertical-align: middle; letter-spacing: 0.03em; }
+
+/* Acceso con PIN */
+.input-pin { font-size: 1.6rem !important; letter-spacing: 0.5em; text-align: center; font-variant-numeric: tabular-nums; }
+.input-pin::placeholder { letter-spacing: 0.3em; }
+.acceso-olvide { text-align: center; margin: 0; }
+.check-linea { display: flex; align-items: center; gap: 8px; margin: 2px 0 12px; font-size: 0.95rem; color: var(--gris); }
+.check-linea input[type="checkbox"] { width: 20px; height: 20px; min-height: 0; padding: 0; margin: 0; flex: none; appearance: auto; -webkit-appearance: checkbox; border: 0; box-shadow: none; accent-color: var(--fucsia); }

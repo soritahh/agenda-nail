@@ -1,7 +1,7 @@
 // Gestión privada (sólo superadmin): clientas y agendas. El acceso real lo controlan RLS y las funciones pro_admin_*.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm';
 import { SUPABASE_URL, SUPABASE_KEY, BUCKET_LOGOS } from '../pro/js/config.js';
-import { $, $$, esc, icono, toast, confirmar, abrirHoja, mensajeError, logoHTML, linkWhatsApp, hoyAR } from '../pro/js/comun.js';
+import { $, $$, esc, icono, toast, confirmar, abrirHoja, mensajeError, logoHTML, linkWhatsApp, hoyAR } from '../pro/js/comun.js?v=p4';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'agenda-nail-gestion-auth' },
@@ -13,6 +13,19 @@ const ESTADO_CLIENTA = { activa: 'Activa', pausada: 'Pausada', prueba: 'Prueba' 
 const TIPOS_LOGO = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 const BASE_PRO = new URL('../pro/', location.href).href;
 const linkAgenda = (slug) => `${BASE_PRO}r/?m=${encodeURIComponent(slug)}`;
+const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$/;
+
+/** Mismo criterio que la Edge Function 'admin-pin' (que es la que manda). null = PIN válido. */
+function problemaPin(pin) {
+  if (!/^\d{6}$/.test(pin)) return 'El PIN tiene que tener exactamente 6 números.';
+  const d = [...pin].map(Number);
+  if (d.every((x) => x === d[0])) return 'Ese PIN es muy fácil de adivinar (todos los números iguales).';
+  const paso = d[1] - d[0];
+  if (Math.abs(paso) === 1 && d.every((x, i) => i === 0 || x - d[i - 1] === paso)) return 'Ese PIN es muy fácil de adivinar (números seguidos).';
+  if (pin.slice(0, 3) === pin.slice(3) || pin.slice(0, 2).repeat(3) === pin) return 'Ese PIN es muy fácil de adivinar (se repite).';
+  if (['112233', '123321', '102030', '159753', '147258', '258369', '789456', '456123', '131313', '010101'].includes(pin)) return 'Ese PIN es muy fácil de adivinar. Elige otro.';
+  return null;
+}
 
 function pantalla(html) {
   app.hidden = true; acceso.hidden = false;
@@ -29,9 +42,9 @@ function formLogin() {
   $('#f-login').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const e = $('#l-error'); e.hidden = true;
-    ev.submitter.disabled = true;
+    (ev.submitter || ev.target.querySelector('[type=submit]')).disabled = true;
     const { error } = await sb.auth.signInWithPassword({ email: $('#l-email').value.trim(), password: $('#l-pass').value });
-    ev.submitter.disabled = false;
+    (ev.submitter || ev.target.querySelector('[type=submit]')).disabled = false;
     if (error) { e.textContent = /Invalid login/i.test(error.message) ? 'Correo o contraseña incorrectos.' : mensajeError(error); e.hidden = false; return; }
     entrar();
   });
@@ -66,12 +79,17 @@ function marco(contenido) {
   $$('.tabs [data-tab]').forEach((b) => b.onclick = () => { G.tab = b.dataset.tab; pintar(); });
 }
 
+let vistaTurno = 0; // evita que una vista lenta pise a la pestaña elegida después
 function pintar() { return G.tab === 'clientas' ? vistaClientas() : vistaAgendas(); }
 
 // ---------------- Clientas ----------------
+const agendaDe = (c) => (c.profesional_id ? G.agendas.find((a) => a.id === c.profesional_id) : null);
 async function vistaClientas() {
+  const turno = ++vistaTurno;
   marco('<div class="cargando"><span class="spinner"></span> Cargando…</div>');
+  await recargarAgendas();
   const { data, error } = await sb.from('admin_clientas').select('*').order('fecha_alta', { ascending: false }).order('created_at', { ascending: false });
+  if (turno !== vistaTurno) return; // el usuario ya cambió de pestaña
   if (error) { $('#g-cont').innerHTML = `<p class="tarjeta vacio">${esc(mensajeError(error))}</p>`; return; }
   G.clientas = data;
   $('#g-cont').innerHTML = `<button class="btn btn-primario btn-grande" id="c-nueva">${icono('mas')}Agregar clienta</button>
@@ -86,6 +104,7 @@ async function vistaClientas() {
           ${c.notas ? `<p class="pedido-notas">${esc(c.notas)}</p>` : ''}
         </div></div>
         <div class="acciones-fila"><button class="btn btn-secundario btn-compacto" data-acc="editar">Editar</button>
+          ${agendaDe(c) ? `<button class="btn btn-secundario btn-compacto" data-acc="pin">${agendaDe(c).tiene_pin ? 'Cambiar PIN' : 'Crear PIN'}</button>` : ''}
           <button class="btn btn-texto-peligro btn-compacto" data-acc="borrar">Eliminar</button></div></article>`;
     }).join('') : '<p class="tarjeta vacio">Todavía no hay clientas.</p>'}</div>`;
   $('#c-nueva').onclick = () => editarClienta(null);
@@ -93,6 +112,7 @@ async function vistaClientas() {
     const b = e.target.closest('[data-acc]'); if (!b) return;
     const c = G.clientas.find((x) => x.id === b.closest('[data-id]').dataset.id);
     if (b.dataset.acc === 'editar') return editarClienta(c);
+    if (b.dataset.acc === 'pin') return dialogoPin(agendaDe(c), vistaClientas);
     if (!await confirmar({ titulo: `¿Eliminar a ${c.nombre}?`, texto: 'Se borra sólo de esta lista de clientas (su agenda no se toca). No se puede deshacer.', si: 'Eliminar', peligro: true })) return;
     const { error: er } = await sb.from('admin_clientas').delete().eq('id', c.id);
     if (er) return toast(mensajeError(er), 'error');
@@ -139,9 +159,9 @@ function editarClienta(c) {
     };
     if (!fila.nombre) return falla('Escribe el nombre.');
     if (fila.link && !/^https?:\/\//i.test(fila.link)) return falla('El link tiene que empezar con https://');
-    ev.submitter.disabled = true;
+    (ev.submitter || ev.target.querySelector('[type=submit]')).disabled = true;
     const { error } = nueva ? await sb.from('admin_clientas').insert(fila) : await sb.from('admin_clientas').update(fila).eq('id', c.id);
-    ev.submitter.disabled = false;
+    (ev.submitter || ev.target.querySelector('[type=submit]')).disabled = false;
     if (error) return falla(mensajeError(error));
     cerrar(); toast(nueva ? 'Clienta agregada.' : 'Cambios guardados.'); vistaClientas();
   });
@@ -155,8 +175,9 @@ async function recargarAgendas() {
 }
 
 async function vistaAgendas() {
+  const turno = ++vistaTurno;
   marco('<div class="cargando"><span class="spinner"></span> Cargando…</div>');
-  if (!await recargarAgendas()) return;
+  if (!await recargarAgendas() || turno !== vistaTurno) return;
   const orden = { pendiente: 0, activa: 1, pausada: 2 };
   const lista = [...G.agendas].sort((a, b) => orden[a.estado] - orden[b.estado] || a.nombre.localeCompare(b.nombre));
   $('#g-cont').innerHTML = `<button class="btn btn-primario btn-grande" id="a-nueva">${icono('mas')}Crear agenda</button>
@@ -164,17 +185,18 @@ async function vistaAgendas() {
       <div class="fila-gestion">${logoHTML(a, 52)}<div class="fila-gestion-info">
         <h3>${esc(a.nombre)}</h3>
         <p><span class="chip chip-${a.estado === 'pendiente' ? 'prueba' : a.estado}">${ESTADO_AGENDA[a.estado]}</span> · ${esc(a.slug)}</p>
-        <p>Cuenta: ${a.cuenta_email ? esc(a.cuenta_email) : '<i>sin cuenta</i>'}</p>
-        <p>${a.servicios} servicios · ${a.pendientes} pedidos pendientes · alta ${esc(String(a.created_at).slice(0, 10).split('-').reverse().join('/'))}</p>
+        <p>Acceso: ${a.tiene_pin ? `PIN ✓ · entra con <b>${esc(a.slug)}</b>` : a.cuenta_email ? `correo ${esc(a.cuenta_email)} (sin PIN)` : '<i>sin PIN todavía</i>'}</p>
+        <p>${a.servicios} servicios · ${a.pendientes} pedidos pendientes · alta ${esc(new Date(a.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }))}</p>
       </div></div>
       <div class="acciones-fila">
+        <button class="btn btn-primario btn-compacto" data-acc="pin">${a.tiene_pin ? 'Cambiar PIN' : 'Crear PIN'}</button>
         ${a.estado === 'pendiente' ? '<button class="btn btn-primario btn-compacto" data-acc="activa">Activar</button>' : ''}
         ${a.estado === 'activa' ? '<button class="btn btn-secundario btn-compacto" data-acc="pausada">Pausar</button>' : ''}
         ${a.estado === 'pausada' ? '<button class="btn btn-primario btn-compacto" data-acc="activa">Reactivar</button>' : ''}
         <a class="btn btn-secundario btn-compacto" href="${esc(linkAgenda(a.slug))}" target="_blank" rel="noopener">Ver página</a>
         <label class="btn btn-secundario btn-compacto">Logo<input type="file" accept="image/png,image/jpeg,image/webp" class="oculto" data-logo></label>
         <button class="btn btn-secundario btn-compacto" data-acc="copiar">Copiar link</button>
-        ${a.cuenta_email ? '<button class="btn btn-texto-peligro btn-compacto" data-acc="quitar">Quitar cuenta</button>' : '<button class="btn btn-secundario btn-compacto" data-acc="asignar">Asignar cuenta</button>'}
+        ${a.cuenta_email ? `<button class="btn btn-texto-peligro btn-compacto" data-acc="quitar">${a.tiene_pin ? 'Quitar acceso' : 'Quitar cuenta'}</button>` : '<button class="btn btn-secundario btn-compacto" data-acc="asignar">Asignar cuenta</button>'}
       </div></article>`).join('') || '<p class="tarjeta vacio">No hay agendas.</p>'}</div>`;
   $('#a-nueva').onclick = crearAgenda;
   const cont = $('#g-cont');
@@ -197,18 +219,19 @@ async function vistaAgendas() {
       toast(acc === 'pausada' ? 'Agenda pausada.' : 'Agenda activa.'); return vistaAgendas();
     }
     if (acc === 'quitar') {
-      if (!await confirmar({ titulo: '¿Quitar la cuenta?', texto: `${a.cuenta_email} ya no podrá administrar la agenda de ${a.nombre}. La agenda y sus turnos se mantienen.`, si: 'Quitar', peligro: true })) return;
+      if (!await confirmar({ titulo: a.tiene_pin ? '¿Quitar el acceso con PIN?' : '¿Quitar la cuenta?', texto: `${a.tiene_pin ? 'Su PIN' : a.cuenta_email} ya no servirá para administrar la agenda de ${a.nombre}. La agenda y sus turnos se mantienen. Puedes crearle un PIN nuevo cuando quieras.`, si: 'Quitar', peligro: true })) return;
       const { error } = await sb.rpc('pro_admin_quitar_cuenta', { p_id: a.id });
       if (error) return toast(mensajeError(error), 'error');
       toast('Cuenta quitada.'); return vistaAgendas();
     }
     if (acc === 'asignar') return asignarCuenta(a);
+    if (acc === 'pin') return dialogoPin(a, vistaAgendas);
   });
 }
 
 function asignarCuenta(a) {
   const { capa, cerrar } = abrirHoja(`Asignar cuenta · ${a.nombre}`, `<form id="f-asig" novalidate>
-    <p class="texto-suave">La manicurista primero se registra en el panel con su correo. Después escribes ese correo aquí y la agenda pasa a ser suya.</p>
+    <p class="texto-suave">Sólo para una cuenta con correo que ya exista en Supabase. Lo normal es usar “Crear PIN”.</p>
     <div class="campo"><label for="as-email">Correo de su cuenta</label><input id="as-email" type="email" required></div>
     <p id="as-error" class="form-error-general" hidden></p>
     <button class="btn btn-primario btn-grande" type="submit">Asignar</button></form>`);
@@ -224,19 +247,89 @@ function asignarCuenta(a) {
 }
 
 function crearAgenda() {
-  const { capa, cerrar } = abrirHoja('Crear agenda', `<form id="f-crear" novalidate>
-    <p class="texto-suave">Se crea pendiente y sin cuenta. Después puedes activarla, subir su logo y asignarle una cuenta.</p>
-    <div class="campo"><label for="n-nombre">Nombre / marca</label><input id="n-nombre" maxlength="60" required></div>
-    <div class="campo"><label for="n-slug">Link (slug)</label><input id="n-slug" maxlength="30" autocapitalize="none" required placeholder="sofi-nails"></div>
+  const { capa, cerrar } = abrirHoja('Nueva agenda', `<form id="f-crear" novalidate>
+    <p class="texto-suave">Después le creas el PIN y ella entra al panel con el nombre de la agenda + ese PIN.</p>
+    <div class="campo"><label for="n-slug">Nombre de la agenda (link)</label><input id="n-slug" maxlength="30" autocapitalize="none" spellcheck="false" required placeholder="sofi-nails">
+      <p class="ayuda">Minúsculas, números y guiones. Es su link (…/r/?m=<b>sofi-nails</b>) y lo que escribe para entrar.</p></div>
+    <div class="campo"><label for="n-nombre">Nombre / marca</label><input id="n-nombre" maxlength="60" required placeholder="Sofi Nails"></div>
+    <div class="fila-2">
+      <div class="campo"><label for="n-wa">WhatsApp</label><input id="n-wa" type="tel" maxlength="25" placeholder="3511234567"></div>
+      <div class="campo"><label for="n-ig">Instagram</label><input id="n-ig" maxlength="31" autocapitalize="none" placeholder="@sofinails"></div></div>
+    <div class="fila-2">
+      <div class="campo"><label for="n-zona">Zona</label><input id="n-zona" maxlength="120" placeholder="Barrio, ciudad"></div>
+      <div class="campo"><label for="n-estado">Estado</label><select id="n-estado">${Object.entries(ESTADO_AGENDA).map(([k, v]) => `<option value="${k}" ${k === 'activa' ? 'selected' : ''}>${v}</option>`).join('')}</select></div></div>
     <p id="n-error" class="form-error-general" hidden></p>
-    <button class="btn btn-primario btn-grande" type="submit">Crear</button></form>`);
+    <button class="btn btn-primario btn-grande" type="submit">Crear agenda</button></form>`);
   $('#f-crear', capa).addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const err = $('#n-error', capa);
-    const { error } = await sb.rpc('pro_admin_crear', { p_nombre: $('#n-nombre', capa).value.trim(), p_slug: $('#n-slug', capa).value.trim().toLowerCase() });
-    if (error) { err.textContent = mensajeError(error); err.hidden = false; return; }
-    cerrar(); toast('Agenda creada.'); vistaAgendas();
+    const err = $('#n-error', capa), falla = (m) => { err.textContent = m; err.hidden = false; };
+    const slug = $('#n-slug', capa).value.trim().toLowerCase(), nombre = $('#n-nombre', capa).value.trim();
+    const wa = $('#n-wa', capa).value.replace(/\D/g, ''), ig = $('#n-ig', capa).value.trim().replace(/^@/, '');
+    if (!SLUG_RE.test(slug) || slug.includes('--')) return falla('El nombre de la agenda: de 3 a 30 minúsculas, números o guiones (sin empezar ni terminar con guion).');
+    if (nombre.length < 2) return falla('Escribe el nombre o marca.');
+    if (wa && !/^[0-9]{8,15}$/.test(wa)) return falla('El WhatsApp tiene que tener entre 8 y 15 números.');
+    if (ig && !/^[A-Za-z0-9._]{1,30}$/.test(ig)) return falla('El Instagram sólo puede tener letras, números, puntos y guiones bajos.');
+    (ev.submitter || ev.target.querySelector('[type=submit]')).disabled = true;
+    const { data: id, error } = await sb.rpc('pro_admin_crear_agenda', { p_slug: slug, p_nombre: nombre, p_whatsapp: wa || null,
+      p_instagram: ig || null, p_zona: $('#n-zona', capa).value.trim() || null, p_estado: $('#n-estado', capa).value });
+    (ev.submitter || ev.target.querySelector('[type=submit]')).disabled = false;
+    if (error) return falla(mensajeError(error));
+    cerrar(); toast('Agenda creada.');
+    await recargarAgendas();
+    const a = G.agendas.find((x) => x.id === id);
+    if (G.tab === 'agendas') vistaAgendas();
+    if (a && await confirmar({ titulo: '¿Crear su PIN ahora?', texto: `${a.nombre} va a entrar con “${a.slug}” y un PIN de 6 números.`, si: 'Crear PIN' })) dialogoPin(a, vistaAgendas);
   });
+}
+
+/** Crear / cambiar el PIN (6 números, dos veces). Lo guarda la Edge Function 'admin-pin'. */
+function dialogoPin(a, alTerminar) {
+  const cambiar = a.tiene_pin;
+  const { capa, cerrar } = abrirHoja(`${cambiar ? 'Cambiar PIN' : 'Crear PIN'} · ${a.nombre}`, `<form id="f-pin" novalidate>
+    <p class="texto-suave">Ella entra al panel con <b>${esc(a.slug)}</b> + este PIN.${cambiar ? ' El PIN anterior deja de funcionar y se cierran sus sesiones abiertas.' : ''}</p>
+    <div class="campo"><label for="pin-1">PIN nuevo (6 números)</label><input id="pin-1" class="input-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="new-password" required></div>
+    <div class="campo"><label for="pin-2">Repite el PIN</label><input id="pin-2" class="input-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="new-password" required></div>
+    <label class="check-linea"><input type="checkbox" id="pin-ver"> Mostrar PIN</label>
+    <p id="pin-error" class="form-error-general" role="alert" hidden></p>
+    <button class="btn btn-primario btn-grande" type="submit">${cambiar ? 'Cambiar PIN' : 'Crear PIN'}</button></form>`);
+  const p1 = $('#pin-1', capa), p2 = $('#pin-2', capa), err = $('#pin-error', capa);
+  const falla = (m) => { err.textContent = m; err.hidden = !m; };
+  [p1, p2].forEach((i) => i.addEventListener('input', () => { const v = i.value.replace(/\D/g, '').slice(0, 6); if (v !== i.value) i.value = v; falla(''); }));
+  $('#pin-ver', capa).onchange = (e) => { p1.type = p2.type = e.target.checked ? 'text' : 'password'; };
+  p1.focus();
+  $('#f-pin', capa).addEventListener('submit', async (ev) => {
+    ev.preventDefault(); falla('');
+    const pin = p1.value;
+    const motivo = problemaPin(pin);
+    if (motivo) return falla(motivo);
+    if (pin !== p2.value) return falla('Los dos PIN no coinciden.');
+    if (!await confirmar({ titulo: `¿${cambiar ? 'Cambiar' : 'Crear'} el PIN de ${a.nombre}?`, texto: `Va a entrar con “${a.slug}” y el PIN que escribiste.`, si: cambiar ? 'Cambiar PIN' : 'Crear PIN' })) return;
+    const b = ev.submitter || ev.target.querySelector('[type=submit]'); b.disabled = true;
+    const { data, error } = await sb.functions.invoke('admin-pin', { body: { accion: 'pin', profesional_id: a.id, pin } });
+    b.disabled = false;
+    if (error || !data?.ok) {
+      let m = 'No se pudo guardar el PIN. Intenta de nuevo.';
+      try { const j = await error?.context?.json(); if (j?.mensaje) m = j.mensaje; } catch { /* respuesta sin JSON */ }
+      return falla(m);
+    }
+    cerrar();
+    toast(cambiar ? 'PIN cambiado.' : 'PIN creado.');
+    avisoPin(a, pin);
+    alTerminar?.();
+  });
+}
+
+/** Resumen para pasarle a la manicurista (lo envía Agustin si quiere; aquí no se envía nada). */
+function avisoPin(a, pin) {
+  const panel = `${BASE_PRO}panel.html`;
+  const texto = `¡Hola ${a.nombre}! Tu agenda ya está lista.\nEntra a ${panel}\nAgenda: ${a.slug}\nPIN: ${pin}\nTu link para clientas: ${linkAgenda(a.slug)}`;
+  const wa = a.whatsapp ? linkWhatsApp(a.whatsapp, texto) : '';
+  const { capa } = abrirHoja('PIN guardado', `<p>Agenda: <b>${esc(a.slug)}</b><br>PIN: <b>${esc(pin)}</b></p>
+    <p class="texto-suave">Anótalo o pásaselo ahora: después no se puede volver a ver (sólo cambiarlo).</p>
+    <div class="acciones-columna">
+      <button class="btn btn-secundario btn-grande" id="pin-copiar">Copiar mensaje</button>
+      ${wa ? `<a class="btn btn-primario btn-grande" href="${wa}" target="_blank" rel="noopener">Abrir WhatsApp con el mensaje</a>` : ''}</div>`);
+  $('#pin-copiar', capa).onclick = async () => { try { await navigator.clipboard.writeText(texto); toast('Mensaje copiado.'); } catch { toast(texto); } };
 }
 
 async function subirLogo(a, f) {
