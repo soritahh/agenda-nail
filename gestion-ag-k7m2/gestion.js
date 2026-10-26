@@ -62,9 +62,32 @@ function marco(contenido) {
     <div class="tabs" role="tablist">
       <button role="tab" data-tab="clientas" aria-selected="${G.tab === 'clientas'}">Clientas</button>
       <button role="tab" data-tab="agendas" aria-selected="${G.tab === 'agendas'}">Agendas</button></div>
+    <div class="respaldo-fila" style="display:flex;justify-content:flex-end;margin:0 0 12px">
+      <button class="btn btn-secundario btn-compacto" id="g-respaldo" type="button" title="Descarga todos los datos (sin claves ni códigos) en un archivo .json">Descargar respaldo</button></div>
     <div id="g-cont">${contenido}</div>`;
+  $('#g-respaldo').onclick = descargarRespaldo;
   $('#g-salir').onclick = async () => { if (await confirmar({ titulo: '¿Cerrar sesión?', texto: 'Vas a tener que ingresar de nuevo.', si: 'Salir' })) salir(); };
   $$('.tabs [data-tab]').forEach((b) => b.onclick = () => { G.tab = b.dataset.tab; pintar(); });
+}
+
+/** Respaldo de sólo lectura: la base arma el JSON (admin_respaldo exige ser admin) y se baja como archivo. */
+async function descargarRespaldo(ev) {
+  const b = ev.currentTarget, texto = b.textContent;
+  b.disabled = true; b.textContent = 'Preparando respaldo…';
+  try {
+    const { data, error } = await sb.rpc('admin_respaldo');
+    if (error) return toast(mensajeError(error), 'error');
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: url, download: `agenda-nail-respaldo-${hoyAR()}.json` });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    toast('Respaldo descargado.');
+  } catch (e) {
+    toast(mensajeError(e), 'error');
+  } finally {
+    b.disabled = false; b.textContent = texto;
+  }
 }
 
 let vistaTurno = 0; // evita que una vista lenta pise a la pestaña elegida después
