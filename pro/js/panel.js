@@ -1,4 +1,5 @@
 // Panel de cada manicurista (versión PRO): acceso con PIN, agenda del día, próximos, turno manual y ajustes.
+import { aplicarTema } from './tema.js?v=p8';
 import {
   sb, $, $$, esc, pesos, precioTexto, icono, iconoServicio, parsePesos, pesosInput, hoyAR, sumarDias, parseFecha, fechaISO, diaSemana, DIAS, MESES,
   fechaLarga, fechaCorta, fechaRelativa, capitalizar, duracionTexto, hora5, linkWhatsApp, toast, confirmar, abrirHoja,
@@ -270,7 +271,7 @@ async function entrar() {
   }
   acceso.hidden = true; app.hidden = false;
   bannerDemo({ enlace: 'r/?m=demo', texto: 'Ver página de reservas' });
-  aplicarColor(P.pro.color);
+  colorPanel();
   actualizarBadge();
   router();
 }
@@ -667,6 +668,59 @@ async function vistaNuevo(param) {
   });
 }
 
+// Agendas con tema (plantilla estudio): color dorado y clase de tema. Las demás siguen con su color de siempre.
+function colorPanel() {
+  if (P.pro?.tema?.plantilla === 'estudio') { aplicarTema(P.pro.tema); document.body.classList.add('panel-estudio'); aplicarColor(P.pro.tema.colores?.oro || null); }
+  else aplicarColor(P.pro?.color);
+}
+const TEMA = () => (P.pro?.tema?.plantilla === 'estudio' ? P.pro.tema : null);
+
+function camposEstudio(s) {
+  const t = TEMA(); if (!t) return '';
+  const todos = (P.servicios || []).filter((x) => x.id !== s?.id && !x.es_extra && !(x.combo_ids || []).length);
+  const ids = new Set(s?.combo_ids || []), ops = new Set(s?.combo_opciones || []);
+  const cats = (t.categorias || []).map((k) => `<option value="${esc(k.id)}" ${s?.categoria === k.id ? 'selected' : ''}>${esc(k.nombre)}</option>`).join('');
+  return `<div class="campo"><label for="s-cat">Categoría</label><select id="s-cat"><option value="">Sin categoría</option>${cats}</select></div>
+    <label class="interruptor"><input type="checkbox" id="s-prox" ${s?.proximamente ? 'checked' : ''}><span>Próximamente (se ve, pero no se puede reservar)</span></label>
+    <label class="interruptor"><input type="checkbox" id="s-desde" ${s?.precio_desde ? 'checked' : ''}><span>Mostrar precio como “desde”</span></label>
+    <div class="solo-extra"><div class="fila-2">
+      <div class="campo"><label for="s-xmin">Suma minutos</label><input id="s-xmin" inputmode="numeric" value="${s?.extra_min ?? 0}"></div>
+      <label class="interruptor" style="align-self:end"><input type="checkbox" id="s-xuni" ${s?.extra_por_unidad ? 'checked' : ''}><span>Precio por unidad (elige cantidad)</span></label>
+    </div></div>
+    <details class="combo-ed" ${ids.size ? 'open' : ''}><summary><b>Combo</b>: armar con otros servicios</summary>
+      <p class="ayuda">Tildá los servicios incluidos. La duración del combo se calcula sola (suma).</p>
+      <div class="combo-lista">${todos.map((x) => `<label class="interruptor"><input type="checkbox" class="s-comp" value="${x.id}" ${ids.has(x.id) ? 'checked' : ''}><span>${esc(x.nombre)} · ${duracionTexto(x.duracion_min)}</span></label>`).join('')}</div>
+      <p class="ayuda"><b>“Elegí uno”</b> (opcional, mínimo 2): la clienta elige una de estas opciones.</p>
+      <div class="combo-lista">${todos.map((x) => `<label class="interruptor"><input type="checkbox" class="s-op" value="${x.id}" ${ops.has(x.id) ? 'checked' : ''}><span>${esc(x.nombre)}</span></label>`).join('')}</div>
+    </details>`;
+}
+function leerEstudio(capa) {
+  if (!TEMA()) return {};
+  const comp = $$('.s-comp:checked', capa).map((i) => i.value), op = $$('.s-op:checked', capa).map((i) => i.value).filter((v) => !comp.includes(v));
+  const xmin = Math.max(0, Math.min(240, parseInt($('#s-xmin', capa).value, 10) || 0));
+  return { categoria: $('#s-cat', capa).value || null, proximamente: $('#s-prox', capa).checked, precio_desde: $('#s-desde', capa).checked,
+    extra_min: xmin, extra_por_unidad: $('#s-xuni', capa).checked, combo_ids: comp, combo_opciones: comp.length && op.length >= 2 ? op : [] };
+}
+
+function editarCategorias() {
+  const t = TEMA(); if (!t) return;
+  const { capa, cerrar } = abrirHoja('Categorías', `<form id="f-cats" novalidate>
+    ${(t.categorias || []).map((k, i) => `<fieldset class="tarjeta" style="margin-bottom:10px"><div class="campo"><label>Nombre</label><input data-i="${i}" data-k="nombre" maxlength="30" value="${esc(k.nombre)}"></div>
+      <div class="campo"><label>Texto corto</label><input data-i="${i}" data-k="sub" maxlength="60" value="${esc(k.sub || '')}"></div></fieldset>`).join('')}
+    <div class="campo"><label for="c-ben">Beneficios exclusivos</label><textarea id="c-ben" rows="3" maxlength="200">${esc(t.beneficios?.texto || '')}</textarea></div>
+    <p id="c-error" class="form-error-general" hidden></p>
+    <button class="btn btn-primario btn-grande" type="submit">Guardar</button></form>`);
+  $('#f-cats', capa).addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const nt = structuredClone(t);
+    $$('[data-i]', capa).forEach((inp) => { const v = inp.value.trim(); if (inp.dataset.k === 'nombre' && !v) return; nt.categorias[+inp.dataset.i][inp.dataset.k] = v; });
+    nt.beneficios = { ...(nt.beneficios || { titulo: 'Beneficios exclusivos' }), texto: $('#c-ben', capa).value.trim() };
+    const r = await sb.from('profesionales').update({ tema: nt }).eq('id', P.pro.id).select('*').single();
+    if (r.error) { const e = $('#c-error', capa); e.textContent = mensajeError(r.error); e.hidden = false; return; }
+    P.pro = r.data; cerrar(); toast('Categorías guardadas.');
+  });
+}
+
 function editarServicio(s) {
   const nuevo = !s;
   let fotos = [...(s?.fotos || [])];
@@ -675,7 +729,7 @@ function editarServicio(s) {
       <div class="campo"><label for="s-nombre">Nombre</label><input id="s-nombre" maxlength="80" required value="${esc(s?.nombre || '')}" placeholder="Ej.: Semipermanente"></div>
       <div class="fila-2">
         <div class="campo"><label for="s-precio">Precio (opcional)</label><div class="input-pesos"><span>$</span><input id="s-precio" inputmode="numeric" value="${pesosInput(s?.precio ?? '')}" placeholder="15.000"></div></div>
-        <div class="campo"><label for="s-dur">Duración</label><select id="s-dur">${[15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 210, 240].map((d) => `<option value="${d}" ${(s?.duracion_min || 60) === d ? 'selected' : ''}>${duracionTexto(d)}</option>`).join('')}</select></div>
+        <div class="campo"><label for="s-dur">Duración</label><select id="s-dur">${(TEMA() ? [...new Set([15, 20, 30, 40, 45, 50, 60, 75, 90, 105, 120, 150, 180, 210, 240, ...(s?.duracion_min ? [s.duracion_min] : [])])] : [15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 210, 240]).sort((a, b) => a - b).map((d) => `<option value="${d}" ${(s?.duracion_min || 60) === d ? 'selected' : ''}>${duracionTexto(d)}</option>`).join('')}</select></div>
       </div>
       <p class="ayuda" style="margin:-6px 0 12px">Si dejas el precio vacío, tus clientas verán “Consultar precio”.</p>
       <div class="campo"><label for="s-desc">Descripción (opcional)</label><textarea id="s-desc" maxlength="200" rows="2" placeholder="Ej.: Incluye deco en 2 uñas">${esc(s?.descripcion || '')}</textarea></div>
@@ -684,6 +738,7 @@ function editarServicio(s) {
       ${nuevo ? '<p class="ayuda">Después de guardar, toca el servicio para sumarle fotos.</p>' : `<label class="interruptor"><input type="checkbox" id="s-activo" ${s.activo ? 'checked' : ''}><span>Visible para reservar</span></label>
       <div class="campo"><span class="label">Fotos (hasta 2)</span><div class="fotos-srv" id="s-fotos"></div>
         <p class="ayuda">Se achican solas para que carguen rápido. Se guardan al momento.</p></div>`}
+      ${camposEstudio(s)}
       <p id="s-error" class="form-error-general" hidden></p>
       <button class="btn btn-primario btn-grande" type="submit">Guardar</button>
     </form>`);
@@ -744,6 +799,7 @@ function editarServicio(s) {
     if (!nombre) { err.textContent = 'Escribe el nombre del servicio.'; err.hidden = false; return; }
     const fila = { nombre, precio: p, duracion_min: Number($('#s-dur', capa).value), descripcion: $('#s-desc', capa).value.trim() || null, es_extra: $('#s-extra', capa).checked };
     if (!nuevo) fila.activo = $('#s-activo', capa).checked;
+    Object.assign(fila, leerEstudio(capa));
     const b = ev.submitter; b.disabled = true;
     const { error } = nuevo ? await sb.from('pro_servicios').insert({ ...fila, profesional_id: P.pro.id }) : await sb.from('pro_servicios').update(fila).eq('id', s.id).eq('profesional_id', P.pro.id);
     b.disabled = false;
@@ -849,6 +905,7 @@ async function vistaAjustes(param) {
   $('#p-copiar').onclick = () => copiarLink(link, $('#p-link'));
   $('#p-compartir').onclick = () => compartirLink(link);
   $('#nuevo-srv').onclick = () => editarServicio(null);
+  if (TEMA()) { $('#nuevo-srv').insertAdjacentHTML('afterend', `<button type="button" class="btn-agregar" id="editar-cats">${icono('lapiz')}Categorías y beneficios</button>`); $('#editar-cats').onclick = editarCategorias; }
   if (DEMO) $('#cerrar-sesion').onclick = async () => { if (await confirmar({ titulo: '¿Reiniciar la demo?', texto: 'Se borran los turnos y cambios de prueba de este dispositivo.', si: 'Reiniciar', peligro: true })) { reiniciarDemo(); location.reload(); } };
   if (!DEMO) $('#cambiar-pin').onclick = cambiarPin;
   if (!DEMO) $('#cerrar-sesion').onclick = async () => { if (await confirmar({ titulo: '¿Cerrar sesión?', texto: 'Para volver a entrar vas a necesitar el nombre de tu agenda y tu PIN.', si: 'Cerrar sesión' })) salir(); };
@@ -977,7 +1034,7 @@ async function vistaAjustes(param) {
         intervalo_min: Number($('#c-int').value), dias_reserva: Number($('#c-dias').value),
         sena_pct: senaPct, alias_pago: alias || null, modo_horario: modo }).eq('id', P.pro.id).select('*').single();
       if (r.error) throw r.error;
-      P.pro = r.data; aplicarColor(P.pro.color);
+      P.pro = r.data; colorPanel();
       for (const h of filas) {
         const fila = { trabaja: h.trabaja, horas_fijas: h.horas_fijas };
         if (h.inicio && h.fin && h.fin > h.inicio) { fila.inicio = h.inicio; fila.fin = h.fin; }
@@ -1001,9 +1058,10 @@ async function pintarServicios() {
   const { data, error } = await sb.from('pro_servicios').select('*').eq('profesional_id', P.pro.id).order('activo', { ascending: false }).order('created_at');
   if (!$('#lista-srv')) return;
   if (error) { ul.innerHTML = `<li class="vacio">${esc(mensajeError(error))}</li>`; return; }
+  P.servicios = data;
   ul.innerHTML = data.length ? data.map((s) => `<li><button type="button" class="fila-servicio${s.activo ? '' : ' inactivo'}" data-id="${s.id}">
       <span class="miniatura${s.fotos?.length ? ' miniatura-foto' : ''}" aria-hidden="true">${s.fotos?.length ? `<img src="${esc(urlFoto(s.fotos[0]))}" alt="" loading="lazy">` : iconoServicio(s.nombre)}</span>
-      <div class="fila-servicio-info"><strong>${esc(s.nombre)}</strong><small>${s.es_extra ? '<b>Extra</b> · ' : ''}${duracionTexto(s.duracion_min)}${s.fotos?.length ? ` · ${s.fotos.length} ${s.fotos.length > 1 ? 'fotos' : 'foto'}` : ''}${s.activo ? '' : ' · <b>Oculto</b>'}</small></div>
+      <div class="fila-servicio-info"><strong>${esc(s.nombre)}</strong><small>${s.es_extra ? '<b>Extra</b> · ' : ''}${s.combo_ids?.length ? '<b>Combo</b> · ' : ''}${s.proximamente ? '<b>Próximamente</b> · ' : ''}${duracionTexto(s.duracion_min)}${s.fotos?.length ? ` · ${s.fotos.length} ${s.fotos.length > 1 ? 'fotos' : 'foto'}` : ''}${s.activo ? '' : ' · <b>Oculto</b>'}</small></div>
       <span class="fila-servicio-precio${s.precio == null ? ' sin-precio' : ''}">${s.precio == null ? 'Sin precio' : pesos(s.precio)}</span>${icono('lapiz', 'editar')}</button></li>`).join('')
     : '<li class="vacio">Todavía no cargaste servicios. Agrega al menos uno para que tus clientas puedan reservar.</li>';
   $$('#lista-srv .fila-servicio').forEach((b) => b.onclick = () => editarServicio(data.find((s) => s.id === b.dataset.id)));
@@ -1017,7 +1075,7 @@ const vigente = () => { const g = ++generacion; return () => g === generacion; }
 function router() {
   if (app.hidden || !P.pro) return;
   // Si se salió de Ajustes sin guardar, se restaura su color.
-  if (!/^#\/ajustes/.test(location.hash)) aplicarColor(P.pro.color);
+  if (!/^#\/ajustes/.test(location.hash)) colorPanel();
   const [, ruta, param] = location.hash.match(/^#\/(\w+)(?:\/([\w-]+))?/) || [];
   const vista = VISTAS[ruta] ? ruta : 'agenda';
   $$('.nav-inferior a').forEach((a) => a.classList.toggle('activo', a.dataset.nav === vista));

@@ -1,7 +1,7 @@
 // Service worker de Agenda Nail PRO. Alcance: sólo /agenda-nail/pro/ (está dentro de /pro/).
 // Caché propio con prefijo 'agenda-nail-pro-': nunca borra los cachés de la app de la raíz.
 const PREFIJO = 'agenda-nail-pro-';
-const VERSION = PREFIJO + 'v6';
+const VERSION = PREFIJO + 'v7';
 
 self.addEventListener('install', () => self.skipWaiting());
 

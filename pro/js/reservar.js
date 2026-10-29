@@ -21,6 +21,7 @@ async function iniciar() {
     if (error) throw error;
     if (!data.existe) return noDisponible('No encontramos esta agenda. Revisa el link que te pasaron.');
     if (!data.disponible) return noDisponible('Agenda no disponible por ahora. Vuelve a intentarlo más adelante.', data.nombre);
+    if (data.tema?.plantilla === 'estudio') return (await import('./estudio.js?v=p8')).iniciarEstudio(data, SLUG); // sólo agendas con tema
     S.config = { ...data, nombre_salon: data.nombre, direccion: data.zona };
     S.horarios = data.horarios.map((h) => ({ ...h, inicio: hora5(h.inicio), fin: hora5(h.fin), horas_fijas: (h.horas_fijas || []).map(hora5) }));
     S.servicios = data.servicios.map((v) => ({ ...v, fotos: v.fotos || [] }));

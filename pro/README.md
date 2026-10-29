@@ -85,3 +85,9 @@ Abre `http://localhost:8080/pro/`. La copia local usa la misma base de Supabase 
 
 - **Authentication → Rate Limits**: revisa el límite de inicios de sesión por IP si quieres que sea más estricto.
 - Las manicuristas ya no usan correo. El SMTP y las *Redirect URLs* solo importan para la agenda original de la raíz.
+
+## Plantilla "estudio" (Malvarez Studio)
+- Se activa sólo si `profesionales.tema.plantilla = 'estudio'` (Katia y el resto no tienen tema: sin cambios).
+- Reserva: `js/estudio.js` + `css/estudio.css` + `js/tema.js`. Combos con grupo "Elegí uno" (`combo_opciones`, migración 0015).
+- Panel: con tema muestra categoría, próximamente, "desde", minutos/precio por unidad de extras, editor de combos y de categorías.
+- Imágenes de combos: estáticas en `icons/clientes/` (columna `imagen`).
