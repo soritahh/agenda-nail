@@ -20,7 +20,7 @@ export function aplicarTema(tema) {
     document.head.appendChild(l);
   }
   if (!document.getElementById('tema-css')) {
-    const l = document.createElement('link'); l.id = 'tema-css'; l.rel = 'stylesheet'; l.href = RAIZ + 'css/estudio.css?v=e3';
+    const l = document.createElement('link'); l.id = 'tema-css'; l.rel = 'stylesheet'; l.href = RAIZ + 'css/estudio.css?v=e4';
     document.head.appendChild(l);
   }
   document.body.classList.add('tema-estudio');

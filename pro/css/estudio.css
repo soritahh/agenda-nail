@@ -141,9 +141,36 @@ body.tema-estudio::before { display: none; }
 .tema-estudio .toast { font-size: 17px; }
 
 /* Panel de la dueña con tema estudio */
-body.tema-estudio.panel-estudio { background: var(--e-marfil); font-size: 16px; --fucsia: var(--e-oro); --plum: var(--e-texto); --grad: linear-gradient(180deg, #d7b672, #b8903f); }
+body.tema-estudio.panel-estudio {
+  background: var(--e-marfil); font-size: 16px;
+  --blush-0: #fffdf8; --blush-1: #faf6ee; --blush-2: #f1e9da; --blush-3: #e3d4b6; --nude: #e6dac4; --greige: #ece6dc;
+  --fucsia: #a8823a; --fucsia-2: #8c6a2c; --fucsia-suave: #f5ecd9; --plum: #211b14; --plum-2: #5e5446;
+  --oro: #c9a45c; --oro-suave: #e6d5ae; --texto: #211b14; --gris: #6f6455; --borde: #e3d6bd; --off-bg: #f1ece3; --sombra-btn: 0 8px 18px rgba(168,130,58,.28);
+  --grad: linear-gradient(180deg, #d7b672, #b8903f);
+}
+/* Pantallas de acceso (login / activación) */
+body.panel-estudio .splash { background: radial-gradient(120% 70% at 50% 0%, #2a2216 0%, var(--e-fondo) 60%); }
+body.panel-estudio .splash .logo-estudio { width: 136px; height: 136px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px var(--e-oro), 0 0 0 7px rgba(201,164,92,.18); }
+body.panel-estudio .splash-titulo { color: var(--e-oro-claro); font-family: var(--e-serif); font-size: 2.4rem; letter-spacing: .02em; }
+body.panel-estudio .splash-sub { color: #cdbf9f; text-transform: uppercase; letter-spacing: .18em; font-size: .85rem; }
+body.panel-estudio .splash-form { background: var(--e-marfil); border: 1px solid var(--e-oro); font-size: 17px; }
+body.panel-estudio .splash-icono { background: var(--e-fondo); color: var(--e-oro); box-shadow: 0 0 0 1.5px var(--e-oro); }
+body.panel-estudio .splash-form input { font-size: 1.1rem; min-height: 54px; border-color: var(--e-borde); background: #fff; }
+body.panel-estudio .splash-form label { font-weight: 600; color: var(--e-texto); }
+body.panel-estudio .btn-grande { min-height: 56px; font-size: 1.1rem; }
+body.panel-estudio .btn-secundario { border-color: var(--e-oro); color: var(--e-texto); background: #fff; }
+body.panel-estudio .splash-pie a { color: var(--e-oro-claro); }
+body.panel-estudio .separador { color: var(--e-oro); }
+body.panel-estudio .nav-inferior { background: var(--e-fondo); border-top: 1px solid var(--e-oro); }
+body.panel-estudio .nav-inferior a { color: #cdbf9f; }
+body.panel-estudio .nav-inferior a.activo { color: var(--e-oro-claro); background: rgba(201,164,92,.16); }
+body.panel-estudio .sheet { background: var(--e-marfil); border-top: 2px solid var(--e-oro); }
 body.panel-estudio h1, body.panel-estudio h2, body.panel-estudio h3 { font-family: var(--e-serif); color: var(--e-texto); }
 body.panel-estudio .btn-primario { color: var(--e-fondo); }
 body.panel-estudio .combo-ed { border: 1.5px solid var(--e-borde); border-radius: 14px; padding: 12px; margin: 10px 0; background: #fff; }
 body.panel-estudio .combo-ed summary { cursor: pointer; padding: 6px 0; }
 body.panel-estudio .combo-lista { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+body.panel-estudio input:focus, body.panel-estudio select:focus, body.panel-estudio textarea:focus { border-color: var(--e-oro); box-shadow: 0 0 0 4px rgba(201,164,92,.22); }
+body.panel-estudio input::placeholder, body.panel-estudio textarea::placeholder { color: #a89c86; }
+body.panel-estudio .btn-secundario { color: var(--e-texto); box-shadow: inset 0 0 0 1.5px var(--e-oro); border: 0; }
+body.panel-estudio :focus-visible { outline-color: rgba(201,164,92,.6); }

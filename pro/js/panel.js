@@ -1,5 +1,5 @@
 // Panel de cada manicurista (versión PRO): acceso con PIN, agenda del día, próximos, turno manual y ajustes.
-import { aplicarTema } from './tema.js?v=p8';
+import { aplicarTema, logoTema } from './tema.js?v=p9';
 import {
   sb, $, $$, esc, pesos, precioTexto, icono, iconoServicio, parsePesos, pesosInput, hoyAR, sumarDias, parseFecha, fechaISO, diaSemana, DIAS, MESES,
   fechaLarga, fechaCorta, fechaRelativa, capitalizar, duracionTexto, hora5, linkWhatsApp, toast, confirmar, abrirHoja,
@@ -67,10 +67,36 @@ async function mensajeFuncion(error, porDefecto) {
 
 function limpiarIntentos() { try { localStorage.removeItem(CLAVE_INTENTOS); } catch { /* nada */ } }
 
+// ---------------- Entrada propia de una agenda con tema (panel.html?m=<slug> o ?activar=<slug>) ----------------
+// Carga el tema público ANTES del login. Sin ?m= (o agenda sin tema) todo queda exactamente como el panel genérico.
+const MANIFIESTOS = { malvarez: 'manifest-panel-malvarez.json' };
+const ENTRADA = { slug: '', tema: null, nombre: '' };
+async function cargarEntrada() {
+  const q = new URLSearchParams(location.search);
+  const slug = leerSlug(q.get('m') || q.get('activar') || '');
+  if (DEMO || !SLUG_RE.test(slug)) return;
+  ENTRADA.slug = slug;
+  try {
+    const { data } = await sb.rpc('pro_pagina', { p_slug: slug });
+    if (data?.tema?.plantilla !== 'estudio') return;
+    ENTRADA.tema = data.tema; ENTRADA.nombre = data.nombre || '';
+    aplicarTema(data.tema); document.body.classList.add('panel-estudio');
+    aplicarColor(data.tema.colores?.oro || null);
+    if (data.nombre) { document.title = `Mi panel · ${data.nombre}`; document.querySelector('meta[name=apple-mobile-web-app-title]')?.setAttribute('content', data.nombre); }
+    document.querySelector('meta[name=apple-mobile-web-app-status-bar-style]')?.setAttribute('content', 'black');
+    if (MANIFIESTOS[slug]) document.querySelector('link[rel=manifest]')?.setAttribute('href', MANIFIESTOS[slug]);
+  } catch { /* sin conexión: panel genérico */ }
+}
+const conEntrada = () => (ENTRADA.slug ? `?m=${encodeURIComponent(ENTRADA.slug)}` : '');
+
 function pantallaAcceso(html, { titulo = '¡Hola!', sub = 'Tu agenda de turnos online', pie = true } = {}) {
-  app.hidden = true; acceso.hidden = false; aplicarColor(null);
+  app.hidden = true; acceso.hidden = false;
+  const tema = ENTRADA.tema;
+  if (tema) aplicarColor(tema.colores?.oro || null); else aplicarColor(null);
+  if (tema && titulo === '¡Hola de nuevo!') { titulo = ENTRADA.nombre || titulo; sub = 'Mi panel'; }
+  if (tema && titulo === '¡Bienvenida!') { titulo = ENTRADA.nombre || titulo; sub = 'Activar mi panel'; }
   acceso.innerHTML = `<div class="splash-contenido">
-    <img src="icons/icono-pro.svg" alt="" class="logo" width="112" height="112">
+    <img src="${tema ? esc(logoTema(tema)) : 'icons/icono-pro.svg'}" alt="" class="logo${tema ? ' logo-estudio' : ''}" width="112" height="112">
     <h1 class="splash-titulo">${esc(titulo)}</h1>
     <p class="splash-sub">${esc(sub)}</p>
     <div class="splash-form"><span class="splash-icono" aria-hidden="true">${icono('usuario')}</span>${html}</div>
@@ -79,6 +105,7 @@ function pantallaAcceso(html, { titulo = '¡Hola!', sub = 'Tu agenda de turnos o
 
 function formPin() {
   let ultima = ''; try { ultima = localStorage.getItem(CLAVE_ULTIMA) || ''; } catch { /* nada */ }
+  if (ENTRADA.slug) ultima = ENTRADA.slug;
   pantallaAcceso(`
     <h2 class="acceso-titulo">Entrar a tu agenda</h2>
     <p class="acceso-sub">Con el nombre de tu agenda y tu PIN de 6 números.</p>
@@ -146,6 +173,7 @@ function formPin() {
 
 /** Primera vez (o después de que Agustin le dio un código nuevo): agenda + código + PIN elegido por ella. */
 function formActivar(slugInicial = '') {
+  if (!slugInicial && ENTRADA.slug) slugInicial = ENTRADA.slug;
   pantallaAcceso(`
     <h2 class="acceso-titulo">Activar mi agenda</h2>
     <p class="acceso-sub">Escribe el código que te pasó Agustin y elige tu PIN de 6 números.</p>
@@ -190,7 +218,7 @@ function formActivar(slugInicial = '') {
       if (e2) { toast('Tu PIN quedó guardado. Entra con tu agenda y tu PIN.'); return formPin(); }
       limpiarIntentos();
       try { localStorage.setItem(CLAVE_ULTIMA, slug); } catch { /* nada */ }
-      history.replaceState(null, '', location.pathname);
+      history.replaceState(null, '', location.pathname + conEntrada());
       toast('¡Listo! Tu PIN quedó guardado.');
       await entrar();
     } catch (x) { err(mensajeError(x)); } finally { b.disabled = false; b.textContent = 'Activar y entrar'; }
@@ -264,6 +292,8 @@ async function entrar() {
   try {
     const pro = await cargarPerfil(user.id);
     if (!pro) return pantallaSinAgenda();
+    // Entrada con tema de otra agenda pero sesión de esta: se abre su panel normal.
+    if (ENTRADA.tema && pro.slug !== ENTRADA.slug) { location.replace(location.pathname + location.hash); return; }
     if (pro.estado !== 'activa') return pantallaEstado(pro.estado);
   } catch (e) {
     toast(mensajeError(e), 'error');
@@ -281,7 +311,7 @@ async function salir() {
   try { await desactivarAvisos(P.pro?.id); } catch { /* sin conexión: igual se cierra la sesión */ }
   await sb.auth.signOut();
   P.pro = null; P.user = null;
-  history.replaceState(null, '', location.pathname + (DEMO ? location.search : ''));
+  history.replaceState(null, '', location.pathname + (DEMO ? location.search : conEntrada()));
   iniciarAcceso();
 }
 
@@ -350,7 +380,7 @@ function tarjetaTurno(t, { acciones, sinFecha = false }) {
 // Nuevo turno manual y Ajustes en una sola pantalla. Diseño propio de Agenda Nail.
 function cabecera() {
   return `<header class="barra-panel">
-    ${logoHTML(P.pro || {}, 44)}
+    ${logoPanel(44)}
     <div class="barra-panel-textos"><strong>${esc(P.pro?.nombre || '')}${DEMO ? '<span class="etiqueta-demo">Demo</span>' : ''}</strong><span>Tu agenda de turnos</span></div>
     <button class="btn-link-top" id="btn-link" aria-label="Tu link para clientas">${icono('enlace')}Link</button>
   </header>`;
@@ -673,6 +703,8 @@ function colorPanel() {
   if (P.pro?.tema?.plantilla === 'estudio') { aplicarTema(P.pro.tema); document.body.classList.add('panel-estudio'); aplicarColor(P.pro.tema.colores?.oro || null); }
   else aplicarColor(P.pro?.color);
 }
+const logoPanel = (n) => (TEMA() && !P.pro?.logo_path && logoTema(TEMA())
+  ? `<img class="logo" src="${esc(logoTema(TEMA()))}" alt="Logo de ${esc(P.pro.nombre)}" width="${n}" height="${n}">` : logoHTML(P.pro || {}, n));
 const TEMA = () => (P.pro?.tema?.plantilla === 'estudio' ? P.pro.tema : null);
 
 function camposEstudio(s) {
@@ -838,7 +870,7 @@ async function vistaAjustes(param) {
     <section class="tarjeta">
       <div class="tarjeta-titulo"><h2>Logo</h2></div>
       <div class="perfil-logo">
-        <div id="p-logo-vista">${logoHTML(c, 96)}</div>
+        <div id="p-logo-vista">${c.logo_path ? logoHTML(c, 96) : logoPanel(96)}</div>
         <div class="perfil-logo-acciones">
           <label class="btn btn-secundario btn-compacto" for="p-logo">${c.logo_path ? 'Cambiar logo' : 'Subir logo'}</label>
           <input id="p-logo" type="file" accept="image/png,image/jpeg,image/webp" class="oculto">
@@ -938,8 +970,8 @@ async function vistaAjustes(param) {
     } catch (err) { toast(mensajeError(err), 'error'); lbl.textContent = 'Subir logo'; lbl.classList.remove('cargando-btn'); }
   });
   const pintarLogo = () => {
-    $('#p-logo-vista').innerHTML = logoHTML(P.pro, 96);
-    $('.barra-panel .logo')?.replaceWith(document.createRange().createContextualFragment(logoHTML(P.pro, 44)));
+    $("#p-logo-vista").innerHTML = logoPanel(96);
+    $('.barra-panel .logo')?.replaceWith(document.createRange().createContextualFragment(logoPanel(44)));
     const acc = $('.perfil-logo-acciones');
     $('label[for=p-logo]', acc).textContent = P.pro.logo_path ? 'Cambiar logo' : 'Subir logo';
     $('label[for=p-logo]', acc).classList.remove('cargando-btn');
@@ -1093,4 +1125,4 @@ navigator.serviceWorker?.addEventListener('message', (e) => {
 });
 
 registrarSW();
-iniciarAcceso();
+cargarEntrada().finally(iniciarAcceso);

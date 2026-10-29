@@ -6,7 +6,7 @@ import {
   duracionTexto, normalizarTelefono, linkWhatsApp, toast, mensajeError, hora5, comprimirFoto,
 } from './comun.js?v=p7';
 import { FUNCIONES_URL, SUPABASE_KEY } from './config.js?v=p7';
-import { aplicarTema, logoTema, urlTema } from './tema.js?v=p8';
+import { aplicarTema, logoTema, urlTema } from './tema.js?v=p9';
 import { urlFoto } from './comun.js?v=p7';
 
 const app = $('#app');
